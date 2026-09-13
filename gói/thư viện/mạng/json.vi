@@ -1,6 +1,5 @@
-// Module: thư viện.mạng web.json
-// Mục đích: dựng chuỗi JSON an toàn cho các giá trị scalar.
-// Giới hạn v1: chưa parse JSON và chưa biểu diễn array/object lồng nhau ở runtime.
+// Module: thư viện.mạng.json
+// Mục đích: dựng, phân tích và tuần tự JSON an toàn, gồm object/array lồng nhau.
 
 // Ghi chú hàm: escape một chuỗi theo JSON (quote, backslash và ký tự điều khiển).
 hàm json thoát(giá trị) {
@@ -10,6 +9,17 @@ hàm json thoát(giá trị) {
 // Ghi chú hàm: tạo literal JSON string, gồm cả dấu quote bao ngoài.
 hàm json chuỗi(giá trị) {
     ném "thư viện: json chuỗi native hook không khả dụng";
+};
+
+// Phân tích JSON thành map/list/scalar runtime. JSON true/false ánh xạ sang
+// đúng/sai (1/0), null ánh xạ sang rỗng.
+hàm json phân tích(nội dung) {
+    ném "thư viện: json phân tích native hook không khả dụng";
+};
+
+// Tuần tự map/list/tuple/scalar runtime thành JSON hợp lệ.
+hàm json tạo(giá trị) {
+    ném "thư viện: json tạo native hook không khả dụng";
 };
 
 // Ghi chú hàm: tạo một property JSON có giá trị chuỗi.

@@ -1,0 +1,31 @@
+nhập "gói/thư viện/main.vi";
+
+hàm main() {
+    // Chuỗi UTF-8 phải tính/reverse theo code point, không theo byte.
+    in độ dài("Việt Nam");
+    in đảo ngược("Việt");
+
+    in thành số nguyên("42");
+    in thành số thực("3.5");
+    in thành chuỗi(12);
+    danh sách mẫu = [1, 2];
+    in loại của(danh sách mẫu);
+    in ngẫu nhiên nguyên(5, 5);
+
+    thư mục test = đường dẫn nối("src/tests/.tmp", "stdlib_nen_tang");
+    xóa đường dẫn(thư mục test);
+    in đường dẫn tên(thư mục test);
+    in tạo thư mục(thư mục test);
+
+    tệp test = đường dẫn nối(thư mục test, "mẫu.txt");
+    ghi tệp(tệp test, "xin chào");
+    in đường dẫn tồn tại(tệp test);
+    in là tệp(tệp test);
+    in là thư mục(thư mục test);
+    in liệt kê thư mục(thư mục test);
+
+    in đọc biến môi trường("__VPP_TEST_BIEN_KHONG_TON_TAI__", "mặc định");
+    ngủ mili giây(0);
+    in "đã ngủ";
+    in xóa đường dẫn(thư mục test) > 0;
+};

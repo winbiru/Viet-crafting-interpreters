@@ -219,6 +219,9 @@ TESTS=(
   src/tests/kiem_tra_stdlib_tinh_toan.vi
   src/tests/kiem_tra_stdlib_mo_rong.vi
   src/tests/kiem_tra_thu_vien_kiem_thu.vi
+  src/tests/kiem_tra_thu_vien_mang.vi
+  src/tests/kiem_tra_stdlib_nen_tang.vi
+  src/tests/kiem_tra_json_phan_tich.vi
   src/tests/kiem_tra_json_an_toan.vi
   src/tests/kiem_tra_stdlib_io_config_time.vi
   src/tests/kiem_tra_api_thuc_thu.vi

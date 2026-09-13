@@ -36,6 +36,10 @@ static void printErrorMessage(std::string_view fallback,
     std::cerr << messages::formatMessage(fallback, {detail}) << std::endl;
 }
 
+static void connectVmOutput(VM &vm) {
+    vm.setOutputSink([](const std::string &text) { std::cout << text; });
+}
+
 std::string readFile(const std::string &filename) {
     std::ifstream fileStream(vietvm::core::utf8Path(filename));
     if (!fileStream.is_open()) {
@@ -99,6 +103,7 @@ static int runSnippet(const std::string &source,
     }
 
     VM vm(artifacts.bytecode, stringPool);
+    connectVmOutput(vm);
     vm.hamBytecodeMap = compilationContext.functionBytecode;
     for (const auto &entry : compilationContext.functionNameIndices) {
         vm.functionTableByNameIndex[entry.second] = entry.first;
@@ -804,6 +809,7 @@ int main(int argc, char* argv[]) {
             //     std::cout << std::endl;
             // }
             VM vm(bytecode, stringPool);
+            connectVmOutput(vm);
 
             // copy compiled functions into VM
             vm.hamBytecodeMap = vietvm::compiler::hamMap::hamBytecodeMap;
@@ -834,6 +840,7 @@ int main(int argc, char* argv[]) {
                     const auto& stringPool = vietvm::compiler::StringPool::getPool();
 
                     VM vm(bytecode, stringPool);
+                    connectVmOutput(vm);
                     // copy compiled functions into VM
                     vm.hamBytecodeMap = vietvm::compiler::hamMap::hamBytecodeMap;
                     vm.run();

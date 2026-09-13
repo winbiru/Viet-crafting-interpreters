@@ -1,7 +1,7 @@
 // Legacy API-project adapter. It is intentionally excluded from gói/thư viện/ứng dụng/main.vi
 // because its routes, users schema, and JSON contracts are project-specific.
 
-nhập "gói/thư viện/mạng web/main.vi";
+nhập "gói/thư viện/mạng/main.vi";
 nhập "gói/thư viện/dữ liệu/main.vi";
 nhập "gói/thư viện/vào ra/main.vi";
 

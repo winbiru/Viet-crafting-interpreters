@@ -923,6 +923,29 @@ void testNestedListUsesSharedLiteralWireAndChainedIndexing() {
     vietvm::compiler::resetCompilationState();
 }
 
+void testCollectionLiteralsAreFirstClassIrValues() {
+    expectDirectCompilationStable(
+        "hàm nhận(x) { trả về x; } in nhận([1, 2]);",
+        "a list literal can be emitted directly as a call argument",
+        true);
+    expectDirectCompilationStable(
+        "hàm nhận(x) { trả về x; } in nhận({\"a\": [1, {\"b\": 2}]});",
+        "nested list/map literals remain first-class values inside call arguments",
+        true);
+
+    vietvm::compiler::resetCompilationState();
+    const auto artifacts = vietvm::compiler::compilePipeline(
+        "in [{\"a\": [1, 2]}];", keywordMap, true);
+    expect(artifacts.ir.unsupportedDirectRegionCount == 0,
+           "nested collection literals lower without unsupported direct-IR regions");
+    expect(std::any_of(artifacts.bytecode.begin(), artifacts.bytecode.end(),
+                       [](const Instruction &instruction) {
+                           return instruction.op == OP_LIST_LITERAL;
+                       }),
+           "nested collection root emits OP_LIST_LITERAL");
+    vietvm::compiler::resetCompilationState();
+}
+
 void testMapEscapesUseStableDirectEncoding() {
     const std::string source =
         R"VPP(m = {"line\nkey": "x\ny", "quote": "a\"b", "slash": "c\\d"}; in m;)VPP";
@@ -946,12 +969,6 @@ void testMapGrammarAndContextReportDiagnostics() {
     expectCompileDiagnostic(
         "m = {hello world: 1};",
         "a contextual multi-word name is not accepted as one legacy map key");
-    expectCompileDiagnostic(
-        "in !{\"a\": 1};",
-        "a map nested under a unary operator remains a legacy diagnostic");
-    expectCompileDiagnostic(
-        "m = {\"a\": 1} + 2;",
-        "a map nested under a binary assignment RHS remains a legacy diagnostic");
     expectCompileDiagnostic(
         "in ({\"a\": 1});",
         "a parenthesized map remains outside the legacy whole-map grammar");
@@ -1014,6 +1031,7 @@ int main() {
     testPrimitiveMapUsesDirectIrAndLegacyEncoding();
     testPrimitiveListUsesDirectIrAndLegacyEncoding();
     testNestedListUsesSharedLiteralWireAndChainedIndexing();
+    testCollectionLiteralsAreFirstClassIrValues();
     testMapEscapesUseStableDirectEncoding();
     testMapGrammarAndContextReportDiagnostics();
     testGroupedStoresReportDiagnostics();

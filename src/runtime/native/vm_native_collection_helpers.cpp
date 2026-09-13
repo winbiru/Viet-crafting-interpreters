@@ -7,6 +7,7 @@
 
 #include "common/vm_native_constants.h"
 #include "common/vm_native_helpers.h"
+#include "vpp/core/text.h"
 #include "vpp/runtime/collection.h"
 
 namespace vietvm::helpers {
@@ -18,7 +19,8 @@ bool handleNativeCollectionFunction(const std::string &fn,
     if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnLength)) {
         if (!requireNativeArgumentCount(args, fn, 1, err)) return true;
         if (std::holds_alternative<std::string>(args[0])) {
-            result = make_int_value(static_cast<int>(std::get<std::string>(args[0]).size()));
+            result = make_int_value(static_cast<int>(vietvm::core::utf8CodePointCount(
+                std::get<std::string>(args[0]))));
             return true;
         }
         if (std::holds_alternative<ListHandle>(args[0])) {
@@ -62,9 +64,8 @@ bool handleNativeCollectionFunction(const std::string &fn,
     if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnListReverse)) {
         if (!requireNativeArgumentCount(args, fn, 1, err)) return true;
         if (std::holds_alternative<std::string>(args[0])) {
-            std::string reversed = std::get<std::string>(args[0]);
-            std::reverse(reversed.begin(), reversed.end());
-            result = make_string_value(reversed);
+            result = make_string_value(vietvm::core::reverseUtf8CodePoints(
+                std::get<std::string>(args[0])));
             return true;
         }
         ListHandle list;

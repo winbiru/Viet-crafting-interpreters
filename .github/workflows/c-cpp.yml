@@ -90,3 +90,18 @@ jobs:
         shell: pwsh
         run: |
           ctest --test-dir build -C Release --output-on-failure --verbose --no-tests=error
+
+  macos-build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build V++
+        run: cmake --build build --parallel 2
+
+      - name: Run macOS full V++ regression suite
+        run: ctest --test-dir build --output-on-failure --verbose --no-tests=error

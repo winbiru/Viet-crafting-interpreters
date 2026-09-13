@@ -14,6 +14,14 @@ target_link_libraries(vpp-vm-opcode-smoke-unit PRIVATE vpp-runtime)
 add_test(NAME vpp-vm-opcode-smoke-unit
          COMMAND vpp-vm-opcode-smoke-unit)
 
+add_executable(vpp-vm-handler-unit
+    vm_handler_tests.cpp)
+
+target_link_libraries(vpp-vm-handler-unit PRIVATE vpp-runtime)
+
+add_test(NAME vpp-vm-handler-unit
+         COMMAND vpp-vm-handler-unit)
+
 add_executable(vpp-runtime-value-unit
     runtime_value_tests.cpp)
 
@@ -107,6 +115,7 @@ set_tests_properties(vpp-cli-dump-ir PROPERTIES
 foreach(vpp_test_target IN ITEMS
         vpp-compiler-support-unit
         vpp-vm-opcode-smoke-unit
+        vpp-vm-handler-unit
         vpp-runtime-value-unit
         vpp-opcode-and-native-constants-unit
         vpp-message-constants-unit

@@ -1,5 +1,5 @@
-// Module: thư viện.mạng.mạng web
-// Mục đích: adapter mạng mức thấp (GET/POST/PUT) qua native hook.
+// Module: thư viện.mạng
+// Mục đích: adapter mạng mức thấp (GET/POST/PUT/DELETE và HTTP server) qua native hook.
 // Ghi chú: nếu VM chưa bật native hook, các hàm sẽ ném lỗi.
 
 // Ghi chú hàm: mạng lấy.

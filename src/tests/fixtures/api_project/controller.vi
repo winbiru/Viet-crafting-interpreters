@@ -1,5 +1,5 @@
-nhập "mạng web";
-nhập "gói/thư viện/mạng web/kiểm thử/api.vi";
+nhập "mạng";
+nhập "gói/thư viện/mạng/kiểm thử/api.vi";
 nhập src/tests/fixtures/api_project/service.vi;
 
 // Ghi chú lớp: gom route chuẩn của API project theo kiểu cấu hình tập trung.

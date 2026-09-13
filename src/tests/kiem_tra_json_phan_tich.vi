@@ -1,0 +1,31 @@
+nhập "gói/thư viện/main.vi";
+
+hàm main() {
+    meta json = json đối tượng một chuỗi("ngôn ngữ", "Việt");
+    nội dung = "{" +
+        json thuộc tính chuỗi("tên", "V++") + "," +
+        json thuộc tính thô("số", "3") + "," +
+        json thuộc tính thô("ok", "true") + "," +
+        json thuộc tính thô("không", "null") + "," +
+        json thuộc tính thô("ds", "[1,2]") + "," +
+        json thuộc tính thô("meta", meta json) + "}";
+    dữ liệu = json phân tích(nội dung);
+
+    in lấy map(dữ liệu, "tên", "");
+    in lấy map(dữ liệu, "số", 0);
+    in lấy map(dữ liệu, "ok", 0);
+    in loại của(lấy map(dữ liệu, "không", 1));
+
+    ds = lấy map(dữ liệu, "ds", rỗng);
+    meta = lấy map(dữ liệu, "meta", rỗng);
+    in json tạo(ds);
+    in lấy map(meta, "ngôn ngữ", "");
+
+    danh sách json = json phân tích("[1," + json chuỗi("hai") + ",null]");
+    in json tạo(danh sách json);
+    đối tượng b = json đối tượng một chuỗi("c", "d");
+    nội dung hai = "{" + json thuộc tính thô("a", "[1,2]") + "," +
+        json thuộc tính thô("b", đối tượng b) + "}";
+    dữ liệu hai = json phân tích(nội dung hai);
+    in json tạo(dữ liệu hai);
+};

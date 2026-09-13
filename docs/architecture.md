@@ -105,8 +105,9 @@ chạy VM và được in ra stdout để có thể redirect hoặc dùng trong 
 
 Không được xem sơ đồ pipeline là bằng chứng rằng mọi feature đã hoàn thiện.
 Expression arena, scope tree, ExprId-based resolution và recursive untyped IR đã
-có. Direct emitter hiện nhận literal/name/operator/assignment/postfix/print/primitive map,
-top-level function, primitive default parameter, return, resolved function call, structured
+có. Direct emitter hiện nhận literal/name/operator/assignment/postfix/print, list/map
+literal đệ quy như giá trị hạng nhất (kể cả trong call argument), top-level function,
+primitive default parameter, return, resolved function call, structured
 if/else/for-loop/switch/try-catch, continue, break, throw và class namespace/method.
 Lambda capture-free, dynamic/native/indirect call và structured import đã có direct
 emission trong regression corpus. Grammar edge/malformed case chưa được hỗ trợ sẽ bị
@@ -167,10 +168,10 @@ nằm bên trong nó:
 gói/
 └── thư viện/
     ├── main.vi             # entrypoint đầy đủ
-    ├── cốt lõi/            # toán, chuỗi, luận lý, xác thực
-    ├── vào ra/             # tệp, cấu hình, đồng hồ, nhật ký
-    ├── mạng/               # HTTP client GET/POST/PUT/DELETE và HTTP server native mức thấp
-    ├── mạng web/           # REST/JSON helpers; kiểm thử/api không được import mặc định
+    ├── cốt lõi/            # toán, UTF-8 cơ bản, collections, chuyển kiểu, random
+    ├── vào ra/             # tệp, path/thư mục, cấu hình, đồng hồ, nhật ký
+    ├── hệ thống/           # env, nền tảng, sleep
+    ├── mạng/               # HTTP client/server + REST + JSON parse/serialize
     ├── dữ liệu/            # phân trang và database adapter
     ├── ứng dụng/           # lifecycle/bootstrap chung
     ├── khởi động/          # facade web, dữ liệu và ứng dụng full stack
@@ -183,8 +184,9 @@ dấu nháy:
 
 ```vi
 nhập cốt lõi;
+nhập "hệ thống";
 nhập mạng;
-nhập "gói/thư viện/mạng web/kiểm thử/api.vi";
+nhập "gói/thư viện/mạng/kiểm thử/api.vi";
 ```
 
 Bare import ưu tiên package cùng tên của project, rồi mới tìm module bundle
@@ -193,7 +195,7 @@ redirect khi không còn file local tương ứng.
 `gói/thư viện/ứng dụng/main.vi` không import API-project adapter tương thích;
 routes/schema/token của một project mẫu không phải standard library.
 
-Các module này là bundled optional modules, chưa phải package độc lập có dependency/version resolver. Cài riêng module mạng web mà không có module mạng chưa được package manager tự giải quyết.
+Các module này là bundled optional modules, chưa phải package độc lập có dependency/version resolver. HTTP, REST và JSON hiện cùng nằm trong package `mạng` để dùng một entrypoint thống nhất. JSON object/array được ánh xạ trực tiếp sang map/list runtime; filesystem và system helpers không phụ thuộc CLI/stdout.
 
 ## Examples, templates và tests
 

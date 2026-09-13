@@ -1,6 +1,6 @@
 # Kế hoạch trung hạn (1–3 tháng)
 
-> Cập nhật: 12/09/2026
+> Cập nhật: 13/09/2026
 > Mục tiêu là giảm coupling của compiler/runtime và tăng độ tin cậy. Baseline hiện
 > có regression CTest, sanitizer trên Ubuntu và vài C++ unit test, nhưng chưa phải
 > coverage đầy đủ.
@@ -17,17 +17,22 @@
 
 1. Tách VM::run() theo opcode handler
 
-   - [ ] Chia dispatch hiện tại thành handler nhỏ, bảo toàn semantics và call frame.
+   - [x] Chia dispatch hiện tại thành handler nhỏ, bảo toàn semantics và call frame.
+     `VM::run()` hiện chỉ giữ lifecycle/GC và routing opcode; logic call, value,
+     arithmetic, literal, index, variable/call-frame, switch/block, loop-control,
+     exception và branch đã nằm trong các handler riêng.
    - [ ] Đưa state cần thiết vào API nội bộ có thể dựng trong test; không dựa vào
      stdout/global state để kiểm thử từng handler.
-   - [ ] Giữ test tích hợp trước/sau mỗi nhánh refactor.
+   - [x] Giữ test tích hợp trước/sau mỗi nhánh refactor. Baseline trước refactor và
+     lần chạy sau khi tách toàn bộ nhóm handler đều đạt 54/54 regression.
 
 2. Mở rộng test opcode và compiler
 
-   - [ ] Chuyển VM opcode smoke test thành ma trận test cho arithmetic, stack,
-     branch, call/return, native call, lỗi runtime và boundary value.
-     Hiện đã có list/index, lỗi boundary, branch và call/return; native call và nhiều
-     stack case vẫn chưa thành ma trận đầy đủ.
+   - [x] Chuyển VM opcode smoke test thành ma trận test cho arithmetic, stack,
+     branch, call/return, native call, lỗi runtime và boundary value. Ma trận hiện
+     khóa arithmetic/modulo, logic/comparison boundary, boolean/null/unary stack,
+     assignment/increment/decrement, list/index, branch, direct/indirect/native call,
+     default parameter, switch/default, throw/catch/uncaught và các đường lỗi chính.
    - [x] Thêm regression cho lexer/compiler khi phát hiện lỗi thay vì chỉ sửa output
      của fixture.
    - [x] Xác định test discovery rõ ràng: C++ unit target riêng, regression V++ riêng,
@@ -38,8 +43,8 @@
    - [x] Thêm coverage report có ngưỡng 45% line coverage và loại trừ system header,
      test/fixture, example/template và build-generated code qua LCOV.
    - [x] Thêm `clang-tidy` với `.clang-tidy` được version hoá và job quality trên Ubuntu.
-   - [ ] Cân nhắc macOS regression CI nếu native runtime có nhánh platform-specific;
-     workflow release hiện mới xác nhận build/package macOS.
+   - [x] Thêm macOS regression CI thường trực cho build + toàn bộ CTest, song song
+     với Ubuntu và Windows; workflow release vẫn chịu trách nhiệm đóng gói artifact.
 
 4. Giảm state toàn cục trong compiler
 

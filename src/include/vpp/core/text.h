@@ -20,9 +20,15 @@ std::string toUpperAscii(const std::string &value);
 std::vector<std::string> splitAsciiWords(const std::string &value);
 std::string joinWithSpaces(const std::vector<std::string> &words);
 
-// Shared byte-oriented string algorithms used by the native stdlib. These
-// intentionally follow the existing ASCII/UTF-8-byte semantics until Unicode
-// code-point handling is introduced as a separate contract.
+// UTF-8 helpers used by user-facing string APIs. Invalid byte sequences are
+// preserved as single-byte units so library calls remain total on arbitrary
+// file/network text instead of throwing during basic length/reverse operations.
+std::size_t utf8CodePointCount(const std::string &value);
+std::string reverseUtf8CodePoints(const std::string &value);
+
+// Shared string algorithms used by the native stdlib. Case conversion remains
+// ASCII-only for now, while length/reverse and longest-word sizing use UTF-8
+// code-point boundaries.
 std::size_t countSubstring(const std::string &value, const std::string &needle);
 std::string replaceAll(const std::string &value,
                        const std::string &from,

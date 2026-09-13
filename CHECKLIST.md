@@ -148,10 +148,10 @@
 ### 6.2 Kiến trúc thư viện/framework theo module
 | Hạng mục | Trạng thái |
 |----------|-----------|
-| `gói/thư viện/cốt lõi` (toán/chuỗi/luận lý/xác thực) | ✅ |
-| `gói/thư viện/vào ra` (tệp/cấu hình/thời gian/nhật ký) | ✅ |
-| `gói/thư viện/mạng` (HTTP native client/server wrapper) | ✅ |
-| `gói/thư viện/mạng web` (REST helpers; test API tách riêng) | ✅ |
+| `gói/thư viện/cốt lõi` (toán/chuỗi/collections/chuyển kiểu/random/luận lý/xác thực) | ✅ |
+| `gói/thư viện/vào ra` (tệp/đường dẫn/thư mục/cấu hình/thời gian/nhật ký) | ✅ |
+| `gói/thư viện/hệ thống` (env/nền tảng/sleep) | ✅ |
+| `gói/thư viện/mạng` (HTTP client/server + REST + JSON; test API tách riêng) | ✅ |
 | `gói/thư viện/dữ liệu` (phân trang/database adapter) | ✅ *(phụ thuộc driver CLI của host)* |
 | `gói/thư viện/ứng dụng` (lifecycle chung, không tự import full stack) | ✅ |
 | `gói/thư viện/khởi động` (facade web/dữ liệu/ứng dụng; `ứng dụng` là full stack) | ✅ |
@@ -332,15 +332,16 @@
 | Thư viện/Module | Trạng thái | Ghi chú |
 |-----------------|-----------|--------|
 | I/O tệp & luồng | ✅ | Có `io_doc_file`, `io_ghi_file`, đọc/ghi file cơ bản |
-| Hệ thống tệp (filesystem) | ✅ | Dùng `std::filesystem` cho import, package manager, CLI |
+| Hệ thống tệp (filesystem) | ✅ | Có API V++ nối/tách/kiểm tra path, tạo/liệt kê/xóa thư mục trên `std::filesystem` |
 | Mạng TCP/UDP | ⬜ | Có TCP nội bộ cho HTTP server; chưa có API TCP/UDP tổng quát cho V++ |
 | HTTP client | ✅ | Có `mang_http_get/post/put/delete(...)` qua `curl` shell; test dùng fixture nội bộ viết bằng `.vi`; chưa link `libcurl` trực tiếp |
 | Đa luồng/đồng thời | ⬜ | Chưa có thread API trong V++ |
-| Collections (array/map) | 🚧 | Có map literal scalar; array literal/index và map get/set chưa là API runtime ổn định |
-| Xử lý chuỗi | ✅ | Nối chuỗi, thao tác chuỗi cơ bản |
+| Collections (list/map/set/tuple) | ✅ | Có literal/index, mutation và helper collection được regression test |
+| Xử lý chuỗi | 🚧 | Length/reverse theo code point UTF-8; upper/lower/title vẫn ASCII-only |
 | Toán học | ✅ | Có nhóm hàm stdlib tính toán |
-| Ngày giờ | ✅ | Có `lay_thoi_gian_hien_tai()` |
-| Serialization JSON/XML/YAML | 🚧 | Có `mạng web/json.vi` cho escape/quote và dựng object chuỗi; chưa có parser hoặc array/nested-object runtime |
+| Chuyển kiểu & random | ✅ | Có `thành chuỗi/số nguyên/số thực`, `loại của`, `ngẫu nhiên nguyên` |
+| Ngày giờ | 🚧 | Có thời gian hiện tại và sleep mili giây; chưa có duration/parse/format timezone |
+| Serialization JSON/XML/YAML | 🚧 | JSON đã parse/serialize nested map/list/scalar; XML/YAML chưa có |
 | Logging chuẩn | ✅ | Có module `gói/thư viện/vào ra/nhật ký.vi` cơ bản |
 | Cấu hình (config) | ✅ | Có `doc_config(path)` |
 | Xử lý lỗi/ngoại lệ | ✅ | Có `thử` / `bắt lỗi` / `ném lỗi` |
@@ -353,7 +354,7 @@
 | i18n/l10n | ⬜ | Chưa có module locale/translation |
 | Diagnostics/Profiling | 🚧 | Có `vpp bác sĩ`, chưa có profiler chuyên sâu |
 | GUI/Đồ họa | ⬜ | Chưa có thư viện GUI chuẩn |
-| OS bindings nâng cao | 🚧 | Có mức cơ bản qua file/process, chưa có syscall API đầy đủ |
+| OS bindings nâng cao | 🚧 | Có env/platform/path/directory/sleep; chưa có process API và syscall nâng cao |
 
 ---
 

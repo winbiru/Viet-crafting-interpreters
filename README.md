@@ -174,16 +174,16 @@ trắng luôn phải đặt trong dấu nháy:
 nhập cốt lõi;
 nhập "vào ra";
 nhập mạng;
-nhập "mạng web";
+nhập "hệ thống";
 nhập dữ liệu;
 nhập "ứng dụng";
 nhập "kiểm thử";
 ```
 
-- `gói/thư viện/cốt lõi`: toán học, chuỗi, luận lý và validation.
-- `gói/thư viện/vào ra`: tệp, cấu hình, thời gian và logging.
-- `gói/thư viện/mạng`: HTTP client GET/POST/PUT/DELETE cùng HTTP server mức thấp.
-- `gói/thư viện/mạng web`: REST helpers và JSON scalar an toàn, phụ thuộc `gói/thư viện/mạng`.
+- `gói/thư viện/cốt lõi`: toán học, chuỗi UTF-8 cơ bản, collections, chuyển kiểu, random, luận lý và validation.
+- `gói/thư viện/vào ra`: tệp, đường dẫn/thư mục, cấu hình, thời gian và logging.
+- `gói/thư viện/hệ thống`: biến môi trường, nhận diện nền tảng và sleep mức mili giây.
+- `gói/thư viện/mạng`: HTTP client/server, REST helpers và JSON parse/serialize map/list/scalar.
 - `gói/thư viện/dữ liệu`: phân trang và database adapter.
 - `gói/thư viện/ứng dụng`: chỉ lifecycle ứng dụng chung; không tự kéo web, HTTP hay data.
 - `gói/thư viện/khởi động`: facade tiện dụng cho web, dữ liệu và ứng dụng full stack.
@@ -192,17 +192,22 @@ nhập "kiểm thử";
 `gói/thư viện/main.vi` là entrypoint đầy đủ. Mỗi module có `main.vi` tại
 `gói/thư viện/<tên tiếng Việt>/main.vi`. Có thể import theo tên module như
 trên, hoặc dùng đường dẫn tường minh khi cần module con, ví dụ
-`nhập "gói/thư viện/mạng web/kiểm thử/api.vi";`. Các bản cài từ release đặt thư viện
+`nhập "gói/thư viện/mạng/kiểm thử/api.vi";`. Các bản cài từ release đặt thư viện
 chuẩn cạnh binary và installer tự cấu hình `VPP_HOME`, vì vậy các import này
 vẫn hoạt động ngoài repository.
 
-`kiểm thử` và `mạng web/kiểm thử/api.vi` là module tùy chọn, không được import
+`kiểm thử` và `mạng/kiểm thử/api.vi` là module tùy chọn, không được import
 tự động bởi `main.vi`; mã production không bị kéo theo API kiểm thử.
 
 Các module trên được bundle cùng V++; package manager xem `thư viện` là một
 package và chưa tự resolve dependency/version cho module con.
 
 HTTP server native hỗ trợ Linux, macOS và Windows.
+
+`độ dài("Việt Nam")` và `đảo ngược(...)` xử lý chuỗi theo biên code point UTF-8.
+Các API đổi hoa/thường vẫn mới hỗ trợ bảng chữ cái ASCII. JSON parser ánh xạ
+`true/false` sang `đúng/sai` (1/0), `null` sang `rỗng`, object sang map và array
+sang list.
 
 Tạo backend tối giản:
 
@@ -225,13 +230,13 @@ nhập "gói/thư viện/khởi động/dữ liệu.vi";
 nhập "gói/thư viện/khởi động/ứng dụng.vi";
 ```
 
-- `web`: cốt lõi + vào ra + mạng web.
+- `web`: cốt lõi + vào ra + mạng.
 - `dữ liệu`: cốt lõi + vào ra + dữ liệu.
-- `ứng dụng`: cốt lõi + vào ra + mạng web + dữ liệu + lifecycle.
+- `ứng dụng`: cốt lõi + vào ra + mạng + dữ liệu + lifecycle.
 
 Vì vậy hãy dùng `gói/thư viện/ứng dụng` khi chỉ cần lifecycle, và dùng
 `gói/thư viện/khởi động/ứng dụng.vi` khi chủ ý cần full stack. Test request builders ở
-`gói/thư viện/mạng web/kiểm thử/api.vi` không được import tự động bởi cả hai entrypoint.
+`gói/thư viện/mạng/kiểm thử/api.vi` không được import tự động bởi cả hai entrypoint.
 
 Ba tên starter cũ `khởi động dữ liệu.vi`, `khởi động web.vi` và `khởi động ứng dụng.vi`
 được giữ làm shim nhỏ trong cùng cây module; chúng không tạo thêm package hay

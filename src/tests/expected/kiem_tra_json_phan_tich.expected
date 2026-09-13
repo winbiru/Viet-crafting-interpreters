@@ -1,0 +1,8 @@
+[IN] V++
+[IN] 3
+[IN] 1
+[IN] rỗng
+[IN] [1,2]
+[IN] Việt
+[IN] [1,"hai",null]
+[IN] {"a":[1,2],"b":{"c":"d"}}
