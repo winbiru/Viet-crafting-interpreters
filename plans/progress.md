@@ -11,8 +11,11 @@
 | --- | ---: | ---: | ---: |
 | Ngắn hạn | 14/15 | 1 | 93% |
 | Trung hạn | 18/18 | 0 | 100% |
-| Dài hạn | 13/28 | 15 | 46% |
-| **Tổng** | **45/61** | **16** | **74%** |
+| Dài hạn | 7/29 | 22 | 24% |
+| **Tổng** | **39/62** | **23** | **63%** |
+
+> Số liệu dài hạn được đếm lại trực tiếp từ checkbox trong `plans/long-term.md` sau
+> khi tách các năng lực nền tảng trước đây bị gộp chung thành milestone độc lập.
 
 ## Đã xác nhận hoàn thành
 
@@ -88,6 +91,21 @@
   Còn thiếu implicit receiver, constructor có tham số, inheritance syntax và instance
   member visibility trước khi chuyển ownership sang tracing GC.
 
+## Khoảng trống nền tảng đã chốt
+
+| Năng lực | Trạng thái hiện tại | Milestone dài hạn |
+| --- | --- | --- |
+| Thread / concurrency / async | Chưa có model tổng quát | Memory model, scheduler/API, synchronization, cancellation |
+| FFI | Chưa có | ABI, marshal, ownership, error boundary, native allowlist |
+| Reflection / metadata | Chưa chốt policy | Quyết định no-reflection hoặc introspection giới hạn |
+| Crypto | Chưa có package chuẩn | Secure random + hash/HMAC + primitive từ implementation kiểm chứng |
+| Sandbox / permission | Chưa có | Capability cho file/network/process/env/FFI, enforce tại runtime boundary |
+| Profiler | Benchmark có, profiler còn thiếu | CPU/timing/allocation sampling hoặc VM event hooks |
+| Package dependency solver | Resolver theo tên/path, chưa có solver | Version/range, conflict resolution, lockfile, cache/offline |
+| Typed IR | Chưa quyết định | Chốt ADR type policy trước Typed IR/static checker |
+| GC production | Chỉ có GC MVP | Tracing GC với object graph và root đầy đủ |
+| Object model | Đã có lát cắt đầu, còn mỏng | Receiver, constructor, inheritance, visibility |
+
 ## Rủi ro cần xử lý sớm
 
 - [x] Xác nhận tính độc lập của `vpp-pipeline-legacy-parity`: corpus 70 chương trình
@@ -111,7 +129,7 @@ Coverage cross-check: 75.77% line coverage (8,884/11,725), gate 45%
 Benchmark baseline: VM dispatch + lexer + compiler pipeline + native HTTP helpers
 Short-term: 14/15
 Medium-term: 18/18
-Long-term: 13/28
+Long-term: 7/29
 ```
 
 ## Ưu tiên tiếp theo
@@ -143,3 +161,11 @@ Long-term: 13/28
     dispatch đã chạy qua semantic/direct IR/VM; tiếp theo chốt implicit receiver,
     constructor có tham số, inheritance syntax + visibility trước tracing GC,
     stack trace/debugger và package resolver.
+14. [ ] Chốt type policy/Typed IR và reflection policy để compiler/object metadata có
+    contract rõ ràng trước khi mở rộng static checking hoặc introspection.
+15. [ ] Thiết kế concurrency/async, FFI và sandbox/permission theo cùng ownership +
+    security boundary; không mở native access trước permission model tối thiểu.
+16. [ ] Tách package resolver và xây dependency solver + lockfile deterministic.
+17. [ ] Nâng tracing GC và profiler lên production-grade trước khi tối ưu JIT sâu hơn.
+18. [ ] Bổ sung crypto package dựa trên implementation đã được kiểm chứng, không tự
+    triển khai primitive mật mã trong VM.

@@ -15,6 +15,11 @@ cmake -S "$ROOT_DIR" -B "$BUILD_DIR" \
   -DBUILD_TESTS=ON \
   -DBUILD_BENCHMARKS=OFF
 cmake --build "$BUILD_DIR" --parallel
+
+# Coverage counters belong to the current test run only. Removing stale gcda
+# files also makes repeated local runs deterministic after source/flag changes.
+find "$BUILD_DIR" -type f -name '*.gcda' -delete
+
 ctest --test-dir "$BUILD_DIR" --output-on-failure --no-tests=error
 
 lcov --capture --directory "$BUILD_DIR" \

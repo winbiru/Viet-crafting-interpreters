@@ -19,6 +19,12 @@ if (VPP_ENABLE_COVERAGE)
         message(FATAL_ERROR "Unsupported compiler for coverage: ${CMAKE_CXX_COMPILER_ID}")
     endif()
     add_compile_options(-O0 -g --coverage)
+    # GCC's gcov counters may be updated by multiple processes during the
+    # integration suite. Atomic profile updates prevent corrupted/negative
+    # execution counts when those processes write the same .gcda files.
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        add_compile_options(-fprofile-update=atomic)
+    endif()
     add_link_options(--coverage)
 endif()
 
