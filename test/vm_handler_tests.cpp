@@ -202,6 +202,89 @@ void testFilesystemPredicatesTreatMissingPathAsFalse() {
            "filesystem predicate", "là tệp(missing) must return 0");
 }
 
+void testRuntimeModuleInitializationRunsOnce() {
+    VM vm({
+        instruction(OP_CHUOI, 0, 1, 0),
+        instruction(OP_IN),
+        instruction(OP_DUNG_CHUONG_TRINH),
+    }, {"module-init", "entry"});
+
+    const std::vector<Instruction> initializer = {
+        instruction(OP_CHUOI, 0, 0, 0),
+        instruction(OP_IN),
+    };
+    expect(vm.addModuleInitializer("module://alpha", initializer),
+           "module runtime", "first module registration must succeed");
+    expect(!vm.addModuleInitializer("module://alpha", initializer),
+           "module runtime", "duplicate module identity must be ignored");
+    expect(vm.moduleState("module://alpha") ==
+               vietvm::runtime::ModuleState::Uninitialized,
+           "module runtime", "registered module starts uninitialized");
+
+    std::string output;
+    vm.setOutputSink([&output](const std::string &text) { output += text; });
+    vm.run();
+    expect(vm.moduleState("module://alpha") ==
+               vietvm::runtime::ModuleState::Initialized,
+           "module runtime", "successful initializer becomes initialized");
+    expect(output == "[IN] module-init\n[IN] entry\n",
+           "module runtime", "module initializer runs before entry bytecode");
+
+    vm.run();
+    expect(output == "[IN] module-init\n[IN] entry\n",
+           "module runtime", "initialized module is never executed twice");
+
+    VM failing({}, {});
+    const std::vector<Instruction> invalidInitializer = {
+        instruction(static_cast<Opcode>(999)),
+    };
+    (void)failing.addModuleInitializer("module://broken", invalidInitializer);
+    bool failed = false;
+    try {
+        failing.run();
+    } catch (const std::runtime_error &) {
+        failed = true;
+    }
+    expect(failed && failing.moduleState("module://broken") ==
+                         vietvm::runtime::ModuleState::Failed,
+           "module runtime", "initializer exception permanently records failed state");
+}
+
+void testObjectHandlerState() {
+    VM vm({}, {"Counter", "value", "add"});
+    vm.hamBytecodeMap.emplace(7, std::vector<Instruction>{
+        instruction(OP_PARAM, 0, 0, 0),
+        instruction(OP_PARAM, 0, 1, 1),
+        instruction(OP_TEN_BIEN_GIA_TRI, 0, 0, 0),
+        instruction(OP_TEN_BIEN_GIA_TRI, 0, 1, 0),
+        instruction(OP_CONG),
+        instruction(OP_TRA_VE),
+    });
+    VMRuntimeFixture access(vm);
+
+    access.executeObject(instruction(OP_TAO_LOP, 0, 0, 0));
+    access.executeObject(instruction(OP_THEM_PHUONG_THUC, 0, 2, 7));
+    access.executeObject(instruction(OP_TAO_DOI_TUONG, 0, 0, 0));
+    expect(std::holds_alternative<InstanceHandle>(access.top()),
+           "object handler", "construction must push a runtime instance");
+    const StackValue instance = access.top();
+
+    access.push(instance);
+    access.push(make_int_value(9));
+    access.executeObject(instruction(OP_GAN_THUOC_TINH, 0, 1, 0));
+    access.push(instance);
+    access.executeObject(instruction(OP_DOC_THUOC_TINH, 0, 1, 0));
+    expect(asInt(access.top(), "object field handler") == 9,
+           "object field handler", "field write followed by read must preserve the value");
+
+    access.push(instance);
+    access.push(make_int_value(2));
+    access.push(make_int_value(3));
+    access.executeObject(instruction(OP_GOI_PHUONG_THUC, 2, 2, 0));
+    expect(asInt(access.top(), "object method handler") == 5,
+           "object method handler", "bound dispatch must call the registered method function");
+}
+
 } // namespace
 
 int main() {
@@ -215,6 +298,8 @@ int main() {
     testLoopControlHandlerState();
     testOutputHandlerUsesSink();
     testFilesystemPredicatesTreatMissingPathAsFalse();
+    testRuntimeModuleInitializationRunsOnce();
+    testObjectHandlerState();
 
     if (failures != 0) {
         std::cerr << failures << " VM handler unit test(s) failed\n";

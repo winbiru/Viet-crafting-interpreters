@@ -1,0 +1,5 @@
+// Module: hệ thống.môi trường
+
+hàm đọc biến môi trường(tên, giá trị mặc định) {
+    ném "stdlib: đọc biến môi trường native hook không khả dụng";
+};

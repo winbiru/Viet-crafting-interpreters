@@ -1,9 +1,0 @@
-// Điểm vào đầy đủ của thư viện chuẩn V++.
-// Chương trình mới nên nhập module hẹp nhất phù hợp với nhu cầu.
-
-nhập "gói/thư viện/cốt lõi/main.vi";
-nhập "gói/thư viện/vào ra/main.vi";
-nhập "gói/thư viện/hệ thống/main.vi";
-nhập "gói/thư viện/mạng/main.vi";
-nhập "gói/thư viện/dữ liệu/main.vi";
-nhập "gói/thư viện/ứng dụng/main.vi";

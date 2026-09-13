@@ -64,8 +64,8 @@ CompilerState compileState(const std::string &source,
         source, keywordMap, emitMainCall);
     return {artifacts.bytecode,
             vietvm::compiler::StringPool::getPool(),
-            vietvm::compiler::hamMap::hamBytecodeMap,
-            vietvm::compiler::hamMap::hamNameIndexMap};
+            vietvm::compiler::hamMap::bytecodeMap(),
+            vietvm::compiler::hamMap::nameIndexMap()};
 }
 
 void expectDirectCompilationStable(const std::string &source,
@@ -693,17 +693,53 @@ void testDirectClassMethodsMatchLegacyState() {
         "match legacy state");
 
     const CompilerState state = compileState(source);
-    expect(state.pool.size() >= 3 && state.pool[0] == "main" &&
-               state.pool[1] == "Toan.nhan" &&
-               state.pool[2] == "Toan.tinh",
-           "top-level function names are predeclared before source-order class methods");
-    expect(state.root.size() >= 3 && state.root[0].op == OP_HAM &&
-               state.root[0].operand == 1 && state.root[0].operandIndex == 1 &&
-               state.root[1].op == OP_HAM && state.root[1].operand == 2 &&
-               state.root[1].operandIndex == 2 &&
-               state.root[2].op == OP_HAM && state.root[2].operand == 0 &&
-               state.root[2].operandIndex == 0,
-           "class methods emit OP_HAM in class order after top-level IDs were allocated");
+    expect(state.pool.size() >= 6 && state.pool[0] == "main" &&
+               state.pool[1] == "Toan" && state.pool[2] == "Toan.nhan" &&
+               state.pool[3] == "nhan" && state.pool[4] == "Toan.tinh" &&
+               state.pool[5] == "tinh",
+           "class runtime metadata keeps deterministic class, qualified-method, and member names");
+    expect(state.root.size() >= 6 && state.root[0].op == OP_TAO_LOP &&
+               state.root[1].op == OP_HAM &&
+               state.root[2].op == OP_THEM_PHUONG_THUC &&
+               state.root[3].op == OP_HAM &&
+               state.root[4].op == OP_THEM_PHUONG_THUC &&
+               state.root[5].op == OP_HAM,
+           "class emission registers the runtime class and each method around existing OP_HAM metadata");
+    vietvm::compiler::resetCompilationState();
+}
+
+void testDirectObjectModelOps() {
+    const std::string source =
+        "lớp Counter { hàm add(a, b) { trả về a + b; } } "
+        "hàm main() { c = Counter(); c.value = 7; in c.value; in c.add(2, 3); }";
+    vietvm::compiler::resetCompilationState();
+    const auto artifacts = vietvm::compiler::compilePipeline(
+        source, keywordMap, true);
+    expect(artifacts.unsupportedDirectIrRegions == 0,
+           "object construction, field access, and bound-method dispatch stay on direct IR");
+
+    const auto &functions = vietvm::compiler::hamMap::bytecodeMap();
+    const int mainName = vietvm::compiler::StringPool::findString("main");
+    int mainId = -1;
+    for (const auto &entry : vietvm::compiler::hamMap::nameIndexMap()) {
+        if (entry.second == mainName) mainId = entry.first;
+    }
+    const auto main = functions.find(mainId);
+    bool hasConstruct = false;
+    bool hasStoreProperty = false;
+    bool hasLoadProperty = false;
+    bool hasMethodCall = false;
+    if (main != functions.end()) {
+        for (const Instruction &instruction : main->second) {
+            hasConstruct = hasConstruct || instruction.op == OP_TAO_DOI_TUONG;
+            hasStoreProperty = hasStoreProperty || instruction.op == OP_GAN_THUOC_TINH;
+            hasLoadProperty = hasLoadProperty || instruction.op == OP_DOC_THUOC_TINH;
+            hasMethodCall = hasMethodCall || instruction.op == OP_GOI_PHUONG_THUC;
+        }
+    }
+    expect(main != functions.end() && hasConstruct && hasStoreProperty &&
+               hasLoadProperty && hasMethodCall,
+           "main bytecode contains the complete first object-model opcode slice");
     vietvm::compiler::resetCompilationState();
 }
 
@@ -1022,6 +1058,7 @@ int main() {
     testNestedTryAndEmptyThrowMatchLegacyFixups();
     testTryCatchCompatibilityEdgesAreRejected();
     testDirectClassMethodsMatchLegacyState();
+    testDirectObjectModelOps();
     testClassMethodResolutionTimingMatchesLegacy();
     testMalformedClassesReportDiagnostics();
     testFunctionDefaultsUseDirectIr();

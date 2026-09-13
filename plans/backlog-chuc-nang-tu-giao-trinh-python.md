@@ -8,12 +8,12 @@
 ## Cách đọc trạng thái
 
 - `Có nền tảng`: primitive công khai đã có trong V++; bài có thể được cài bằng
-  vòng lặp/index/hàm thư viện hiện hữu, dù chưa nhất thiết có một helper chuyên dụng.
+  vòng lặp/index/hàm tiện ích hiện hữu, dù chưa nhất thiết có một helper chuyên dụng.
   Vẫn cần regression hoặc ví dụ riêng trước khi coi bài giáo trình là hoàn tất.
 - `Cần hoàn thiện`: có cú pháp hoặc phần MVP, nhưng API/hành vi chưa ổn định.
-- `Chưa có`: chưa thể biểu đạt bằng primitive runtime/thư viện công khai hiện có;
+- `Chưa có`: chưa thể biểu đạt bằng primitive runtime/API công khai hiện có;
   không dùng trạng thái này chỉ vì chưa có một convenience API riêng.
-- `Ngoài phạm vi lõi`: có thể làm bằng thư viện/CLI mẫu; không nên mở rộng VM nếu không cần.
+- `Ngoài phạm vi lõi`: có thể làm bằng gói/CLI mẫu; không nên mở rộng VM nếu không cần.
 
 ## Thứ tự triển khai đề xuất
 

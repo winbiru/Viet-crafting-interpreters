@@ -65,6 +65,8 @@ set(VPP_COMPILER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/compiler/compileRegistry.cpp
     ${CMAKE_SOURCE_DIR}/src/compiler/compiler.cpp)
 set(VPP_RUNTIME_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/runtime/module.cpp
+    ${CMAKE_SOURCE_DIR}/src/runtime/object.cpp
     ${CMAKE_SOURCE_DIR}/src/runtime/vm.cpp
     ${CMAKE_SOURCE_DIR}/src/runtime/native/vm_native_collection_helpers.cpp
     ${CMAKE_SOURCE_DIR}/src/runtime/native/vm_native_http_helpers.cpp

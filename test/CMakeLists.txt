@@ -1,7 +1,7 @@
 add_executable(vpp-compiler-support-unit
     compiler_support_tests.cpp)
 
-target_link_libraries(vpp-compiler-support-unit PRIVATE vpp-compiler)
+target_link_libraries(vpp-compiler-support-unit PRIVATE vpp-compiler Threads::Threads)
 
 add_test(NAME vpp-compiler-support-unit
          COMMAND vpp-compiler-support-unit)

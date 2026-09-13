@@ -12,7 +12,7 @@
 #include "vpp/frontend/ast.h"
 // Imported files tracking (shared for a single compilation session)
 namespace vietvm { namespace compiler {
-    extern std::unordered_set<std::string> importedFiles;
+    std::unordered_set<std::string> &importedFileSet();
     void clearImportedFiles();
 
     // Class/access-control compile state

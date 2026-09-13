@@ -1,8 +1,12 @@
 #include <algorithm>
+#include <chrono>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -17,6 +21,8 @@
 #include "vpp/core/text.h"
 
 namespace {
+
+namespace fs = std::filesystem;
 
 int failures = 0;
 
@@ -61,7 +67,7 @@ void testStringPool() {
 void testHamMapAllocator() {
     using vietvm::compiler::hamMap;
 
-    hamMap::hamBytecodeMap.clear();
+    hamMap::bytecodeMap().clear();
     hamMap::clearHamNameIndexMap();
     hamMap::resetHamIdCounter();
 
@@ -69,12 +75,12 @@ void testHamMapAllocator() {
     expect(hamMap::allocHamId() == 1, "hamMap allocator increments IDs");
 
     hamMap::setHamNameIndex(1, 42);
-    const auto name = hamMap::hamNameIndexMap.find(1);
-    expect(name != hamMap::hamNameIndexMap.end() && name->second == 42,
+    const auto name = hamMap::nameIndexMap().find(1);
+    expect(name != hamMap::nameIndexMap().end() && name->second == 42,
            "hamMap stores a function name index");
 
     hamMap::clearHamNameIndexMap();
-    expect(hamMap::hamNameIndexMap.empty(), "hamMap clears function name indices");
+    expect(hamMap::nameIndexMap().empty(), "hamMap clears function name indices");
     hamMap::resetHamIdCounter();
     expect(hamMap::allocHamId() == 0, "hamMap reset makes IDs reproducible");
 }
@@ -86,10 +92,10 @@ void testCompilationStateReset() {
     vietvm::compiler::resetCompilationState();
 
     StringPool::storeString("state-that-must-be-cleared");
-    hamMap::hamBytecodeMap.emplace(7, std::vector<Instruction>{{OP_DUNG_CHUONG_TRINH, 0, 0, 0}});
+    hamMap::bytecodeMap().emplace(7, std::vector<Instruction>{{OP_DUNG_CHUONG_TRINH, 0, 0, 0}});
     hamMap::setHamNameIndex(7, 3);
     (void)hamMap::allocHamId();
-    vietvm::compiler::importedFiles.insert("/tmp/imported-once.vi");
+    vietvm::compiler::importedFileSet().insert("/tmp/imported-once.vi");
     vietvm::compiler::registerClassMethodVisibility("NoiBo.chiNoiBo", "NoiBo", "riêng tư");
     vietvm::compiler::pushClassContext("DangXuLy");
 
@@ -99,9 +105,9 @@ void testCompilationStateReset() {
     vietvm::compiler::resetCompilationState();
 
     expect(StringPool::size() == 0, "compilation-state reset clears StringPool");
-    expect(hamMap::hamBytecodeMap.empty(), "compilation-state reset clears function bytecode");
-    expect(hamMap::hamNameIndexMap.empty(), "compilation-state reset clears function name indices");
-    expect(vietvm::compiler::importedFiles.empty(), "compilation-state reset clears imported files");
+    expect(hamMap::bytecodeMap().empty(), "compilation-state reset clears function bytecode");
+    expect(hamMap::nameIndexMap().empty(), "compilation-state reset clears function name indices");
+    expect(vietvm::compiler::importedFileSet().empty(), "compilation-state reset clears imported files");
     expect(vietvm::compiler::currentClassContext().empty(),
            "compilation-state reset clears class context");
     expect(hamMap::allocHamId() == 0,
@@ -131,8 +137,8 @@ void testRepeatedTopLevelCompilationLifecycle() {
     vietvm::compiler::resetCompilationState();
     const auto first = vietvm::compiler::compilePipeline(firstSource, keywordMap, true);
     const std::vector<std::string> firstPool = StringPool::getPool();
-    const auto firstNames = hamMap::hamNameIndexMap;
-    const std::size_t firstFunctionCount = hamMap::hamBytecodeMap.size();
+    const auto firstNames = hamMap::nameIndexMap();
+    const std::size_t firstFunctionCount = hamMap::bytecodeMap().size();
 
     expect(StringPool::findString("alpha-lifecycle") >= 0,
            "first top-level compilation records its own string literal");
@@ -148,9 +154,9 @@ void testRepeatedTopLevelCompilationLifecycle() {
     const auto firstAgain = vietvm::compiler::compilePipeline(firstSource, keywordMap, true);
     expect(StringPool::getPool() == firstPool,
            "recompiling the same source after reset reproduces StringPool state");
-    expect(hamMap::hamNameIndexMap == firstNames,
+    expect(hamMap::nameIndexMap() == firstNames,
            "recompiling the same source after reset reproduces function-name IDs");
-    expect(hamMap::hamBytecodeMap.size() == firstFunctionCount,
+    expect(hamMap::bytecodeMap().size() == firstFunctionCount,
            "recompiling the same source after reset reproduces function count");
     expect(firstAgain.bytecode.size() == first.bytecode.size(),
            "recompiling the same source after reset preserves root bytecode shape");
@@ -172,8 +178,8 @@ void testCompilationContextLifecycle() {
     expect(std::find(firstContext.stringPool.begin(), firstContext.stringPool.end(),
                      "alpha-context") != firstContext.stringPool.end(),
            "CompilationContext snapshots the first compilation StringPool");
-    expect(StringPool::size() == 0 && hamMap::hamBytecodeMap.empty() &&
-               hamMap::hamNameIndexMap.empty(),
+    expect(StringPool::size() == 0 && hamMap::bytecodeMap().empty() &&
+               hamMap::nameIndexMap().empty(),
            "context-driven compilation clears legacy registries after success");
 
     vietvm::compiler::CompilationContext secondContext;
@@ -198,6 +204,150 @@ void testCompilationContextLifecycle() {
            "repeated context-driven compilation reproduces function count");
     expect(firstAgain.bytecode.size() == first.bytecode.size(),
            "repeated context-driven compilation preserves root bytecode shape");
+}
+
+void testConcurrentCompilationContexts() {
+    const std::string firstSource = "hàm main() { in \"alpha-concurrent\"; }";
+    const std::string secondSource = "hàm main() { in \"beta-concurrent\"; }";
+
+    vietvm::compiler::CompilationContext firstContext;
+    vietvm::compiler::CompilationContext secondContext;
+    std::exception_ptr firstError;
+    std::exception_ptr secondError;
+
+    std::thread firstThread([&] {
+        try {
+            (void)vietvm::compiler::compilePipeline(
+                firstContext, firstSource, keywordMap, true);
+        } catch (...) {
+            firstError = std::current_exception();
+        }
+    });
+    std::thread secondThread([&] {
+        try {
+            (void)vietvm::compiler::compilePipeline(
+                secondContext, secondSource, keywordMap, true);
+        } catch (...) {
+            secondError = std::current_exception();
+        }
+    });
+
+    firstThread.join();
+    secondThread.join();
+
+    expect(firstError == nullptr && secondError == nullptr,
+           "independent CompilationContext values can compile concurrently");
+    expect(std::find(firstContext.stringPool.begin(), firstContext.stringPool.end(),
+                     "alpha-concurrent") != firstContext.stringPool.end(),
+           "first concurrent context keeps its own StringPool snapshot");
+    expect(std::find(firstContext.stringPool.begin(), firstContext.stringPool.end(),
+                     "beta-concurrent") == firstContext.stringPool.end(),
+           "first concurrent context does not observe the second StringPool");
+    expect(std::find(secondContext.stringPool.begin(), secondContext.stringPool.end(),
+                     "beta-concurrent") != secondContext.stringPool.end(),
+           "second concurrent context keeps its own StringPool snapshot");
+    expect(std::find(secondContext.stringPool.begin(), secondContext.stringPool.end(),
+                     "alpha-concurrent") == secondContext.stringPool.end(),
+           "second concurrent context does not observe the first StringPool");
+}
+
+void testConcurrentCompilationContextsWithIndependentImportRoots() {
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path tempRoot = fs::temp_directory_path() /
+                              ("vpp-compiler-import-context-" + std::to_string(nonce));
+    const fs::path firstRoot = tempRoot / "first";
+    const fs::path secondRoot = tempRoot / "second";
+    fs::create_directories(firstRoot);
+    fs::create_directories(secondRoot);
+
+    auto writeFile = [](const fs::path &path, const std::string &contents) {
+        std::ofstream output(path);
+        if (!output.is_open()) {
+            throw std::runtime_error("cannot create import fixture: " + path.u8string());
+        }
+        output << contents;
+    };
+
+    writeFile(firstRoot / "module.vi",
+              "hàm marker() { in \"alpha-import-root\"; };\n");
+    writeFile(secondRoot / "module.vi",
+              "hàm marker() { in \"beta-import-root\"; };\n");
+
+    const std::string source =
+        "nhập module.vi;\n"
+        "hàm main() { marker(); in \"root-module\"; };\n";
+
+    vietvm::compiler::CompilationContext firstContext;
+    firstContext.importResolutionBase = firstRoot;
+    vietvm::compiler::CompilationContext secondContext;
+    secondContext.importResolutionBase = secondRoot;
+    std::exception_ptr firstError;
+    std::exception_ptr secondError;
+
+    std::thread firstThread([&] {
+        try {
+            (void)vietvm::compiler::compilePipeline(
+                firstContext, source, keywordMap, true);
+        } catch (...) {
+            firstError = std::current_exception();
+        }
+    });
+    std::thread secondThread([&] {
+        try {
+            (void)vietvm::compiler::compilePipeline(
+                secondContext, source, keywordMap, true);
+        } catch (...) {
+            secondError = std::current_exception();
+        }
+    });
+
+    firstThread.join();
+    secondThread.join();
+
+    auto containsString = [](const vietvm::compiler::CompilationContext &context,
+                             const std::string &value) {
+        return std::find(context.stringPool.begin(), context.stringPool.end(), value) !=
+               context.stringPool.end();
+    };
+
+    expect(firstError == nullptr && secondError == nullptr,
+           "concurrent import compilations use independent resolution roots");
+    expect(containsString(firstContext, "alpha-import-root") &&
+               !containsString(firstContext, "beta-import-root"),
+           "first import context resolves module.vi only from its own root");
+    expect(containsString(secondContext, "beta-import-root") &&
+               !containsString(secondContext, "alpha-import-root"),
+           "second import context resolves module.vi only from its own root");
+
+    writeFile(firstRoot / "dependency.vi",
+              "hàm dependency_marker() { in \"dependency-init-order\"; };\n");
+    writeFile(firstRoot / "module.vi",
+              "nhập dependency.vi;\n"
+              "hàm marker() { in \"alpha-import-root\"; };\n");
+
+    vietvm::compiler::CompilationContext semanticContext;
+    semanticContext.importResolutionBase = firstRoot;
+    const auto artifacts = vietvm::compiler::compilePipeline(
+        semanticContext, source, keywordMap, true);
+    bool resolvedImportedCall = false;
+    for (const auto &binding : artifacts.semantic.callBindings) {
+        if (binding.runtimeName == "marker" &&
+            binding.kind == vietvm::compiler::CallTargetKind::ImportedFunction) {
+            resolvedImportedCall = true;
+        }
+    }
+    const bool dependencyFirst = semanticContext.moduleInitializers.size() == 2 &&
+        fs::path(semanticContext.moduleInitializers[0].identity).filename() == "dependency.vi" &&
+        fs::path(semanticContext.moduleInitializers[1].identity).filename() == "module.vi";
+    expect(artifacts.moduleIndex.has_value() && resolvedImportedCall &&
+               artifacts.unsupportedDirectIrRegions == 0 &&
+               dependencyFirst,
+           "top-level pipeline indexes local exports and keeps imported calls on direct IR");
+    expect(dependencyFirst,
+           "recursive imports retain dependency-before-importer module initializer order");
+
+    std::error_code ignored;
+    fs::remove_all(tempRoot, ignored);
 }
 
 void testSymbolTableIds() {
@@ -259,7 +409,7 @@ void testSharedFunctionResolution() {
 
     vietvm::compiler::resetCompilationState();
     const int importedName = StringPool::storeString("hàm đã nhập");
-    hamMap::hamBytecodeMap.emplace(5, std::vector<Instruction>{{OP_DUNG_CHUONG_TRINH, 0, 0, 0}});
+    hamMap::bytecodeMap().emplace(5, std::vector<Instruction>{{OP_DUNG_CHUONG_TRINH, 0, 0, 0}});
     hamMap::setHamNameIndex(5, importedName);
 
     std::unordered_map<std::string, int> symbols;
@@ -302,6 +452,8 @@ int main() {
     testCompilationStateReset();
     testRepeatedTopLevelCompilationLifecycle();
     testCompilationContextLifecycle();
+    testConcurrentCompilationContexts();
+    testConcurrentCompilationContextsWithIndependentImportRoots();
     testSymbolTableIds();
     testSharedTokenHelpers();
     testSharedFunctionResolution();

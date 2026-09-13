@@ -28,23 +28,6 @@ struct CompilerSnapshot {
     std::unordered_map<int, int> functionNameIndices;
 };
 
-class CurrentPathGuard {
-public:
-    CurrentPathGuard() : saved_(fs::current_path()) {}
-    ~CurrentPathGuard() {
-        try {
-            fs::current_path(saved_);
-        } catch (...) {
-        }
-    }
-
-    CurrentPathGuard(const CurrentPathGuard &) = delete;
-    CurrentPathGuard &operator=(const CurrentPathGuard &) = delete;
-
-private:
-    fs::path saved_;
-};
-
 // FNV-1a is used only as a deterministic snapshot fingerprint. The input is a
 // canonical, length-delimited serialization, so map iteration order and host
 // byte order cannot change the result.
@@ -184,9 +167,11 @@ std::unordered_map<std::string, std::uint64_t> readExpectedSnapshots(
     return expected;
 }
 
-CompilerSnapshot capturePipeline(const std::string &source) {
+CompilerSnapshot capturePipeline(const std::string &source,
+                                 const fs::path &resolutionBase) {
     CompilerSnapshot snapshot;
     vietvm::compiler::CompilationContext context;
+    context.importResolutionBase = resolutionBase;
     vietvm::compiler::CompilationArtifacts artifacts =
         vietvm::compiler::compilePipeline(context, source, keywordMap, true);
     snapshot.rootBytecode = std::move(artifacts.bytecode);
@@ -248,9 +233,8 @@ int main(int argc, char **argv) {
 
         try {
             const std::string source = readSource(testFile);
-            CurrentPathGuard cwdGuard;
-            fs::current_path(testFile.parent_path());
-            const CompilerSnapshot pipeline = capturePipeline(source);
+            const CompilerSnapshot pipeline =
+                capturePipeline(source, testFile.parent_path());
             const std::uint64_t actual = hashSnapshot(pipeline);
             if (actual != expectedEntry->second) {
                 ++failures;
@@ -285,9 +269,8 @@ int main(int argc, char **argv) {
 
         try {
             const std::string source = readSource(*testFile);
-            CurrentPathGuard cwdGuard;
-            fs::current_path(testFile->parent_path());
-            const CompilerSnapshot pipeline = capturePipeline(source);
+            const CompilerSnapshot pipeline =
+                capturePipeline(source, testFile->parent_path());
             const std::uint64_t actual = hashSnapshot(pipeline);
             if (actual != expectedEntry->second) {
                 ++failures;

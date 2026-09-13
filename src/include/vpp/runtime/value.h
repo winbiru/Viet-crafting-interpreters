@@ -6,6 +6,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <variant>
@@ -21,10 +22,16 @@ using ScalarValue = std::variant<int, double, std::string, std::monostate>;
 struct MapValue;
 struct ListValue;
 struct TupleValue;
+struct RuntimeClass;
+struct RuntimeInstance;
 using MapHandle = std::shared_ptr<MapValue>;
 using ListHandle = std::shared_ptr<ListValue>;
 using TupleHandle = std::shared_ptr<TupleValue>;
-using StackValue = std::variant<int, double, std::string, std::monostate, MapHandle, ListHandle, TupleHandle>;
+using ClassHandle = std::shared_ptr<RuntimeClass>;
+using InstanceHandle = std::shared_ptr<RuntimeInstance>;
+using StackValue = std::variant<int, double, std::string, std::monostate,
+                                MapHandle, ListHandle, TupleHandle,
+                                ClassHandle, InstanceHandle>;
 
 // Handles make recursive collection values representable by std::variant while
 // preserving reference semantics for mutable V++ collections.
@@ -38,6 +45,20 @@ struct ListValue {
 
 struct TupleValue {
     std::vector<StackValue> elements;
+};
+
+// Object-model records deliberately contain runtime function IDs instead of
+// compiler symbols. This keeps vpp-runtime independent from vpp-compiler and
+// gives the VM a stable substrate for later property/method opcodes.
+struct RuntimeClass {
+    std::string name;
+    ClassHandle superclass;
+    std::unordered_map<std::string, int> methods;
+};
+
+struct RuntimeInstance {
+    ClassHandle klass;
+    std::unordered_map<std::string, StackValue> fields;
 };
 
 inline bool isNumeric(const StackValue &value) {
@@ -95,6 +116,12 @@ inline bool sameStackValue(const StackValue &left, const StackValue &right) {
     }
     if (std::holds_alternative<TupleHandle>(left)) {
         return std::get<TupleHandle>(left) == std::get<TupleHandle>(right);
+    }
+    if (std::holds_alternative<ClassHandle>(left)) {
+        return std::get<ClassHandle>(left) == std::get<ClassHandle>(right);
+    }
+    if (std::holds_alternative<InstanceHandle>(left)) {
+        return std::get<InstanceHandle>(left) == std::get<InstanceHandle>(right);
     }
     return false;
 }
@@ -162,6 +189,17 @@ inline std::string stackValueToString(
         return out.str();
     }
 
+    if (std::holds_alternative<ClassHandle>(value)) {
+        const ClassHandle &klass = std::get<ClassHandle>(value);
+        return klass == nullptr ? "<class>" : "<class " + klass->name + ">";
+    }
+
+    if (std::holds_alternative<InstanceHandle>(value)) {
+        const InstanceHandle &instance = std::get<InstanceHandle>(value);
+        if (instance == nullptr || instance->klass == nullptr) return "<instance>";
+        return "<instance " + instance->klass->name + ">";
+    }
+
     const MapHandle &map = std::get<MapHandle>(value);
     if (map != nullptr && !activeCollections.insert(map.get()).second) {
         return "<cycle>";
@@ -213,6 +251,12 @@ inline StackValue make_list_value(std::vector<StackValue> value) {
 inline StackValue make_tuple_value(std::vector<StackValue> value) {
     return StackValue(std::make_shared<TupleValue>(TupleValue{std::move(value)}));
 }
+inline StackValue make_class_value(ClassHandle value) {
+    return StackValue(std::move(value));
+}
+inline StackValue make_instance_value(InstanceHandle value) {
+    return StackValue(std::move(value));
+}
 
 } // namespace vietvm::runtime
 
@@ -223,6 +267,8 @@ using MapValue = vietvm::runtime::MapValue;
 using MapHandle = vietvm::runtime::MapHandle;
 using TupleHandle = vietvm::runtime::TupleHandle;
 using ListHandle = vietvm::runtime::ListHandle;
+using ClassHandle = vietvm::runtime::ClassHandle;
+using InstanceHandle = vietvm::runtime::InstanceHandle;
 using StackValue = vietvm::runtime::StackValue;
 using vietvm::runtime::isNumeric;
 using vietvm::runtime::formatRuntimeFloat;
@@ -231,6 +277,8 @@ using vietvm::runtime::make_int_value;
 using vietvm::runtime::make_map_value;
 using vietvm::runtime::make_list_value;
 using vietvm::runtime::make_tuple_value;
+using vietvm::runtime::make_class_value;
+using vietvm::runtime::make_instance_value;
 using vietvm::runtime::make_null_value;
 using vietvm::runtime::make_string_value;
 using vietvm::runtime::scalar_to_string;

@@ -1,4 +1,4 @@
-nhập gói/thư viện/main.vi;
+nhập gói/chuẩn/main.vi;
 
 hàm main() {
     in nối chuỗi("xin", " chao");

@@ -56,8 +56,8 @@
 
    - [ ] Khi thay đổi runner hoặc native adapter, xác nhận các job Ubuntu, Windows và
      macOS trên GitHub Actions. Workflow hiện đã có regression thường trực cho cả ba
-     nền tảng; local baseline ngày 13/09/2026 đã qua 15/15 CTest (integration 54/54,
-     parity 61/61). Cần commit/push thay đổi để có bằng chứng Actions cho revision đó.
+     nền tảng; local baseline ngày 13/09/2026 đã qua 15/15 CTest (integration 61/61,
+     parity 70/70). Cần commit/push thay đổi để có bằng chứng Actions cho revision đó.
 
 ## Tiêu chí cho mỗi PR
 
@@ -71,4 +71,4 @@
 - Các fixture HTTP dùng port cục bộ nên runner phải dọn process và thư mục tạm đáng
   tin cậy trên cả Unix lẫn Windows.
 - Unit test không được che giấu lỗi tích hợp: bộ src/tests/*.vi vẫn là regression
-  contract của CLI và package/thư viện chuẩn.
+  contract của CLI và package/gói chuẩn.

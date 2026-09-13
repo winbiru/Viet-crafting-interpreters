@@ -1,0 +1,6 @@
+// Module lá dùng để kiểm tra top-level initializer chỉ chạy một lần.
+in "leaf-init";
+
+hàm leaf value() {
+    trả về 7;
+};

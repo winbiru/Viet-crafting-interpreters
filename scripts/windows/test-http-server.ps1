@@ -22,11 +22,11 @@ try {
 
     # Keep UTF-8 bundled module lookup separate from the server assertion. The
     # source runs outside the repository, so imports must resolve through
-    # VPP_HOME/gói/thư viện rather than a relative project path.
+    # VPP_HOME/gói/chuẩn rather than a relative project path.
     [System.IO.Directory]::CreateDirectory($importProbeDir) | Out-Null
     $probeSource = @'
 nhập mạng;
-nhập "vào ra";
+nhập "nhập xuất";
 '@
     [System.IO.File]::WriteAllText(
         $importProbe,

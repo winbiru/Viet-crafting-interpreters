@@ -64,6 +64,7 @@ enum class SemanticVisibility {
 enum class BindingKind {
     Unresolved,
     Symbol,
+    InstanceMember,
     NativeCallable,
     DynamicName,
     LegacyImplicitValue,
@@ -72,6 +73,9 @@ enum class BindingKind {
 enum class CallTargetKind {
     Invalid,
     DirectFunction,
+    ImportedFunction,
+    ClassConstructor,
+    InstanceMethod,
     IndirectValue,
     Native,
     DynamicName,
@@ -124,6 +128,8 @@ struct BindingResult {
     std::size_t lexicalDepth = 0;
     bool captured = false;
     std::string runtimeName;
+    std::string receiverName;
+    std::string memberName;
 };
 
 struct CallBinding {

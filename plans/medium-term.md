@@ -25,7 +25,7 @@
      hiện cho phép dựng stack/PC/variables/call frame/control state, gọi handler trực
      tiếp và cấu hình output sink; `vpp-vm-handler-unit` khóa các nhóm handler chính.
    - [x] Giữ test tích hợp trước/sau mỗi nhánh refactor. Baseline trước refactor và
-     lần chạy sau khi tách toàn bộ nhóm handler đều đạt 54/54 regression.
+     hiện tại đều giữ suite xanh; baseline hiện tại đạt 61/61 regression.
 
 2. Mở rộng test opcode và compiler
 
@@ -49,13 +49,19 @@
 
 4. Giảm state toàn cục trong compiler
 
-   - [ ] Thiết kế CompilationContext/BytecodeProgram để thay StringPool và registry
-     mutable toàn cục dần theo context per-compilation. Bước đầu đã có
-     `CompilationContext` làm lifecycle/snapshot boundary và CLI `runSnippet()` đã
-     ngừng đọc trực tiếp `StringPool`/`hamMap` sau compile.
-   - [ ] Tách interface compile block/function/statement theo dữ liệu vào-ra cụ thể
-     thay vì chia module chỉ theo file.
-   - [ ] Có test biên dịch liên tiếp/đồng thời trước khi tuyên bố compiler re-entrant.
+   - [x] Dùng `CompilationContext` làm owner cho StringPool, function maps, import set
+     và class/access state theo từng top-level compilation. `StringPool`/`hamMap` còn
+     là compatibility facade tới context active để recursive import dùng chung session;
+     mọi execution path của CLI đọc runtime snapshot trực tiếp từ context.
+   - [x] Tách ranh giới emit block/function/statement theo dữ liệu vào-ra cụ thể.
+     Direct emitter hiện có `emitBlock(...)`, `emitStatement(...)` và
+     `emitFunctionBody(...)`; function body trả về bytecode riêng trước khi được đăng ký,
+     còn statement/block nhận output buffer tường minh thay vì dồn toàn bộ logic vào một
+     dispatch duy nhất.
+   - [x] Có test biên dịch liên tiếp và song song bằng các `CompilationContext` độc lập.
+     `CompilationContext.importResolutionBase` tách lookup import khỏi process cwd và
+     regression song song khóa hai module cùng tên ở hai thư mục độc lập. CLI chỉ đổi
+     cwd trong pha `VM::run()` để giữ semantics file/database tương đối ở runtime.
 
 5. Benchmark và profiling
 

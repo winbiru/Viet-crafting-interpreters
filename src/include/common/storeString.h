@@ -1,21 +1,62 @@
 #pragma once
+#include <filesystem>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "../vm/instruction.h"
 
 namespace vietvm::compiler {
+    struct MethodAccessInfo {
+        std::string ownerClass;
+        std::string visibility;
+    };
+
+    struct CompiledModuleInitializer {
+        std::string identity;
+        std::vector<Instruction> bytecode;
+    };
+
+    struct CompilationRegistryState {
+        std::vector<std::string> stringPool;
+        std::unordered_map<std::string, int> stringPoolIndexMap;
+        std::unordered_map<int, std::vector<Instruction>> functionBytecode;
+        std::unordered_map<int, int> functionNameIndices;
+        std::unordered_set<std::string> importedFiles;
+        std::vector<CompiledModuleInitializer> moduleInitializers;
+        std::unordered_map<std::string, MethodAccessInfo> methodAccess;
+        std::vector<std::string> classContextStack;
+        // Base directory used to resolve relative imports for this compilation.
+        // This is configuration, so clear() intentionally preserves it.
+        std::filesystem::path importResolutionBase;
+        int nextFunctionId = 0;
+
+        void clear() {
+            stringPool.clear();
+            stringPoolIndexMap.clear();
+            functionBytecode.clear();
+            functionNameIndices.clear();
+            importedFiles.clear();
+            moduleInitializers.clear();
+            methodAccess.clear();
+            classContextStack.clear();
+            nextFunctionId = 0;
+        }
+    };
+
+    CompilationRegistryState &activeCompilationRegistryState();
+    CompilationRegistryState *setActiveCompilationRegistryState(
+        CompilationRegistryState *state);
+
     class hamMap {
     public:
-        static std::unordered_map<int, std::vector<Instruction>> hamBytecodeMap;
-        static std::unordered_map<int,int> hamNameIndexMap;
-        static void setHamNameIndex(int hamId, int nameIndex) { hamNameIndexMap[hamId] = nameIndex; }
-        static void clearHamNameIndexMap() { hamNameIndexMap.clear(); }
+        static std::unordered_map<int, std::vector<Instruction>> &bytecodeMap();
+        static std::unordered_map<int, int> &nameIndexMap();
+        static void setHamNameIndex(int hamId, int nameIndex) { nameIndexMap()[hamId] = nameIndex; }
+        static void clearHamNameIndexMap() { nameIndexMap().clear(); }
         static int allocHamId();
         static void resetHamIdCounter();
-    private:
-        static int nextHamId_;
     };
     class StringPool {
     public:
@@ -27,9 +68,6 @@ namespace vietvm::compiler {
         static size_t size() noexcept;
         static const std::vector<std::string>& getPool();
         static void clear();
-    private:
-        static std::vector<std::string> pool_;
-        static std::unordered_map<std::string,int> poolIndexMap_;
     };
 
 } // namespace vietvm::compiler

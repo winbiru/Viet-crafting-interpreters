@@ -1,0 +1,10 @@
+// Khóa thứ tự runtime module initializer: dependency trước importer,
+// rồi mới chạy bytecode của entry module.
+nhập modules/lifecycle_mid.vi;
+nhập modules/lifecycle_leaf.vi;
+
+hàm main() {
+    in "entry";
+    in mid value();
+    in leaf value();
+};

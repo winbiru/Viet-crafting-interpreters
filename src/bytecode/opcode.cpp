@@ -79,6 +79,12 @@ std::string opcodeName(Opcode op) {
         case OP_LIST_LITERAL: return "OP_LIST_LITERAL";
         case OP_DOC_CHI_SO: return "OP_DOC_CHI_SO";
         case OP_GAN_CHI_SO: return "OP_GAN_CHI_SO";
+        case OP_TAO_LOP: return "OP_TAO_LOP";
+        case OP_THEM_PHUONG_THUC: return "OP_THEM_PHUONG_THUC";
+        case OP_TAO_DOI_TUONG: return "OP_TAO_DOI_TUONG";
+        case OP_DOC_THUOC_TINH: return "OP_DOC_THUOC_TINH";
+        case OP_GAN_THUOC_TINH: return "OP_GAN_THUOC_TINH";
+        case OP_GOI_PHUONG_THUC: return "OP_GOI_PHUONG_THUC";
         default: return "UNKNOWN_OPCODE";
     }
 }

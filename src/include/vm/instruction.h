@@ -93,7 +93,13 @@ enum Opcode {
     OP_PARAM_MAC_DINH = 87,      // bind tham số với giá trị mặc định
     OP_LIST_LITERAL = 88,        // list literal (operandIndex = encoded list in string pool)
     OP_DOC_CHI_SO = 89,          // read list/string element by integer index
-    OP_GAN_CHI_SO = 90           // assign list element by integer index
+    OP_GAN_CHI_SO = 90,          // assign list element by integer index
+    OP_TAO_LOP = 91,             // register runtime class (operandIndex = class name)
+    OP_THEM_PHUONG_THUC = 92,    // class/method/function-id tuple
+    OP_TAO_DOI_TUONG = 93,       // zero-arg instance construction
+    OP_DOC_THUOC_TINH = 94,      // instance field read
+    OP_GAN_THUOC_TINH = 95,      // instance field write
+    OP_GOI_PHUONG_THUC = 96      // bound method dispatch
 
 };
 

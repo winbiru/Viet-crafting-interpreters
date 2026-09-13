@@ -58,6 +58,16 @@ bool isIndirectCallableKind(SemanticSymbolKind kind) noexcept {
            kind == SemanticSymbolKind::CatchVariable;
 }
 
+std::pair<std::string, std::string> splitQualifiedRuntimeMember(
+    const std::string &name) {
+    const std::size_t separator = name.find('.');
+    if (separator == std::string::npos || separator == 0 ||
+        separator + 1 >= name.size()) {
+        return {};
+    }
+    return {name.substr(0, separator), name.substr(separator + 1)};
+}
+
 bool isCapturableKind(SemanticSymbolKind kind) noexcept {
     return kind == SemanticSymbolKind::Parameter ||
            kind == SemanticSymbolKind::LocalVariable ||
@@ -442,6 +452,18 @@ private:
         return {kInvalidSymbolId, kInvalidScopeId, depth};
     }
 
+    LookupResult lookupTypeLexical(const std::string &name, ScopeId scope) const noexcept {
+        ScopeId current = scope;
+        std::size_t depth = 0;
+        while (current != kInvalidScopeId) {
+            const SymbolId symbol = symbolInScope(current, SymbolSpace::Type, name);
+            if (symbol != kInvalidSymbolId) return {symbol, current, depth};
+            current = model_.scopes[current].parent;
+            ++depth;
+        }
+        return {kInvalidSymbolId, kInvalidScopeId, depth};
+    }
+
     void declareAssignmentTarget(const AstExpression &expression, ScopeId scope) {
         ExprId target = kInvalidExprId;
         if (expression.kind == AstExpressionKind::Assignment ||
@@ -452,6 +474,15 @@ private:
         }
         const AstExpression *left = program_.expression(target);
         if (left == nullptr || left->kind != AstExpressionKind::Name || left->text.empty()) return;
+
+        const auto member = splitQualifiedRuntimeMember(left->text);
+        if (!member.first.empty()) {
+            const LookupResult receiver = lookupLexical(member.first, scope);
+            if (receiver.symbol != kInvalidSymbolId &&
+                isIndirectCallableKind(model_.symbols[receiver.symbol].kind)) {
+                return;
+            }
+        }
 
         if (lookupLexical(left->text, scope).symbol != kInvalidSymbolId) {
             return;
@@ -666,7 +697,14 @@ private:
         binding.expression = expression.id;
         binding.lookupScope = scope;
         binding.runtimeName = expression.text;
-        const LookupResult found = lookup(expression.text, scope);
+        LookupResult found = lookup(expression.text, scope);
+        if (found.symbol == kInvalidSymbolId && callableUse) {
+            const LookupResult type = lookupTypeLexical(expression.text, scope);
+            if (type.symbol != kInvalidSymbolId &&
+                model_.symbols[type.symbol].kind == SemanticSymbolKind::Class) {
+                found = type;
+            }
+        }
         if (found.symbol != kInvalidSymbolId) {
             binding.kind = BindingKind::Symbol;
             binding.symbol = found.symbol;
@@ -679,21 +717,39 @@ private:
                 recordLambdaCaptures(scope, model_.symbols[found.symbol]);
             }
             validateMemberAccess(model_.symbols[found.symbol], scope, expression.span);
-        } else if (callableUse && isKnownNative(expression.text)) {
-            binding.kind = BindingKind::NativeCallable;
-        } else if (callableUse && policy_ == ResolutionPolicy::PreserveLegacy) {
-            binding.kind = BindingKind::DynamicName;
-        } else if (!callableUse && policy_ == ResolutionPolicy::PreserveLegacy) {
-            binding.kind = BindingKind::LegacyImplicitValue;
         } else {
-            const auto &definition = callableUse
-                ? vietvm::messages::kSemanticUnresolvedCall
-                : vietvm::messages::kSemanticUnresolvedName;
-            model_.diagnostics.push_back({
-                SemanticDiagnosticSeverity::Error,
-                vietvm::messages::messageText(definition, {expression.text}),
-                expression.span,
-            });
+            const auto member = splitQualifiedRuntimeMember(expression.text);
+            if (!member.first.empty()) {
+                const LookupResult receiver = lookupLexical(member.first, scope);
+                if (receiver.symbol != kInvalidSymbolId &&
+                    isIndirectCallableKind(model_.symbols[receiver.symbol].kind)) {
+                    binding.kind = BindingKind::InstanceMember;
+                    binding.symbol = receiver.symbol;
+                    binding.lookupScope = receiver.scope;
+                    binding.lexicalDepth = receiver.depth;
+                    binding.receiverName = member.first;
+                    binding.memberName = member.second;
+                    model_.expressionBindings[expression.id] = binding;
+                    return binding;
+                }
+            }
+
+            if (callableUse && isKnownNative(expression.text)) {
+                binding.kind = BindingKind::NativeCallable;
+            } else if (callableUse && policy_ == ResolutionPolicy::PreserveLegacy) {
+                binding.kind = BindingKind::DynamicName;
+            } else if (!callableUse && policy_ == ResolutionPolicy::PreserveLegacy) {
+                binding.kind = BindingKind::LegacyImplicitValue;
+            } else {
+                const auto &definition = callableUse
+                    ? vietvm::messages::kSemanticUnresolvedCall
+                    : vietvm::messages::kSemanticUnresolvedName;
+                model_.diagnostics.push_back({
+                    SemanticDiagnosticSeverity::Error,
+                    vietvm::messages::messageText(definition, {expression.text}),
+                    expression.span,
+                });
+            }
         }
         model_.expressionBindings[expression.id] = binding;
         return binding;
@@ -709,14 +765,26 @@ private:
         result.runtimeName = callee == nullptr ? std::string() : callee->text;
         if (calleeBinding.kind == BindingKind::NativeCallable) {
             result.kind = CallTargetKind::Native;
+        } else if (calleeBinding.kind == BindingKind::InstanceMember) {
+            result.kind = CallTargetKind::InstanceMethod;
         } else if (calleeBinding.kind == BindingKind::DynamicName) {
             result.kind = CallTargetKind::DynamicName;
         } else if (calleeBinding.kind == BindingKind::Symbol) {
-            const SemanticSymbolKind kind = model_.symbols[calleeBinding.symbol].kind;
-            result.kind = isCallableKind(kind)
-                ? CallTargetKind::DirectFunction
-                : (isIndirectCallableKind(kind) ? CallTargetKind::IndirectValue
-                                                : CallTargetKind::Invalid);
+            const SemanticSymbol &symbol = model_.symbols[calleeBinding.symbol];
+            if (symbol.kind == SemanticSymbolKind::Class) {
+                result.kind = CallTargetKind::ClassConstructor;
+            } else if (symbol.origin == SymbolOrigin::Imported && isCallableKind(symbol.kind)) {
+                // Imported functions have a known semantic identity but no VM
+                // function ID in this module's predeclaration table. Keep them
+                // on the name-based call path until module linking owns IDs.
+                result.kind = CallTargetKind::ImportedFunction;
+            } else {
+                const SemanticSymbolKind kind = symbol.kind;
+                result.kind = isCallableKind(kind)
+                    ? CallTargetKind::DirectFunction
+                    : (isIndirectCallableKind(kind) ? CallTargetKind::IndirectValue
+                                                    : CallTargetKind::Invalid);
+            }
         }
         model_.callBindings[call.id] = result;
 
@@ -927,6 +995,9 @@ const char *callTargetKindName(CallTargetKind kind) noexcept {
     switch (kind) {
         case CallTargetKind::Invalid: return "invalid";
         case CallTargetKind::DirectFunction: return "direct_function";
+        case CallTargetKind::ImportedFunction: return "imported_function";
+        case CallTargetKind::ClassConstructor: return "class_constructor";
+        case CallTargetKind::InstanceMethod: return "instance_method";
         case CallTargetKind::IndirectValue: return "indirect_value";
         case CallTargetKind::Native: return "native";
         case CallTargetKind::DynamicName: return "dynamic_name";

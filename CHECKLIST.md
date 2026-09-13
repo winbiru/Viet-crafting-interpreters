@@ -145,18 +145,18 @@
 | `mang_http_post(url, payload)` | ✅ *(phụ thuộc `curl` và mạng)* |
 | `mang_http_put(url, payload)` | ✅ *(phụ thuộc `curl` và mạng)* |
 
-### 6.2 Kiến trúc thư viện/framework theo module
+### 6.2 Kiến trúc gói/framework theo module
 | Hạng mục | Trạng thái |
 |----------|-----------|
-| `gói/thư viện/cốt lõi` (toán/chuỗi/collections/chuyển kiểu/random/luận lý/xác thực) | ✅ |
-| `gói/thư viện/vào ra` (tệp/đường dẫn/thư mục/cấu hình/thời gian/nhật ký) | ✅ |
-| `gói/thư viện/hệ thống` (env/nền tảng/sleep) | ✅ |
-| `gói/thư viện/mạng` (HTTP client/server + REST + JSON; test API tách riêng) | ✅ |
-| `gói/thư viện/dữ liệu` (phân trang/database adapter) | ✅ *(phụ thuộc driver CLI của host)* |
-| `gói/thư viện/ứng dụng` (lifecycle chung, không tự import full stack) | ✅ |
-| `gói/thư viện/khởi động` (facade web/dữ liệu/ứng dụng; `ứng dụng` là full stack) | ✅ |
-| `gói/thư viện/main.vi` (entrypoint đầy đủ) | ✅ |
-| Shim tên starter cũ trong cùng cây `gói/thư viện/khởi động` | ✅ |
+| `gói/lõi` (toán/chuỗi/collections/chuyển kiểu/random/luận lý/xác thực) | ✅ |
+| `gói/nhập xuất` (tệp/đường dẫn/thư mục/cấu hình/thời gian/nhật ký) | ✅ |
+| `gói/hệ thống` (env/nền tảng/sleep) | ✅ |
+| `gói/mạng` (HTTP client/server + REST + JSON; test API tách riêng) | ✅ |
+| `gói/dữ liệu` (phân trang/database adapter) | ✅ *(phụ thuộc driver CLI của host)* |
+| `gói/ứng dụng` (lifecycle chung, không tự import full stack) | ✅ |
+| `gói/dựng` (facade web/dữ liệu/ứng dụng; `ứng dụng` là full stack) | ✅ |
+| `gói/chuẩn/main.vi` (entrypoint đầy đủ) | ✅ |
+| Shim tên starter cũ trong cùng cây `gói/dựng` | ✅ |
 
 ---
 
@@ -317,7 +317,7 @@
 #### Không sử dụng (không phát hiện trong include/CMake hiện tại)
 | Thành phần | Trạng thái |
 |-----------|-----------|
-| `find_package(...)` cho thư viện bên thứ ba trong `CMakeLists.txt` | ✅ Không sử dụng |
+| `find_package(...)` cho phụ thuộc bên thứ ba trong `CMakeLists.txt` | ✅ Không sử dụng |
 | `Boost` | ✅ Không sử dụng |
 | `OpenSSL` | ✅ Không sử dụng |
 | `libcurl` (link trực tiếp qua CMake) | ✅ Không sử dụng *(chỉ gọi binary `curl` runtime)* |
@@ -342,18 +342,18 @@
 | Chuyển kiểu & random | ✅ | Có `thành chuỗi/số nguyên/số thực`, `loại của`, `ngẫu nhiên nguyên` |
 | Ngày giờ | 🚧 | Có thời gian hiện tại và sleep mili giây; chưa có duration/parse/format timezone |
 | Serialization JSON/XML/YAML | 🚧 | JSON đã parse/serialize nested map/list/scalar; XML/YAML chưa có |
-| Logging chuẩn | ✅ | Có module `gói/thư viện/vào ra/nhật ký.vi` cơ bản |
+| Logging chuẩn | ✅ | Có module `gói/nhập xuất/nhật ký.vi` cơ bản |
 | Cấu hình (config) | ✅ | Có `doc_config(path)` |
 | Xử lý lỗi/ngoại lệ | ✅ | Có `thử` / `bắt lỗi` / `ném lỗi` |
 | Testing framework nội bộ ngôn ngữ | 🚧 | Có `run_tests.sh` và `kiểm thử` với assertion cơ bản; chưa có discovery/runner API trong V++ |
 | Reflection/Metadata | ⬜ | Chưa có introspection runtime |
-| FFI (gọi thư viện ngoài) | ⬜ | Chưa có cơ chế FFI chính thức |
+| FFI (gọi mã ngoài) | ⬜ | Chưa có cơ chế FFI chính thức |
 | Quản lý gói & phiên bản | 🚧 | Có CLI MVP; chưa có dependency/version resolver |
 | Bảo mật/Crypto | ⬜ | Chưa có module mã hóa/hash chuẩn |
 | Sandboxing/Permission | ⬜ | Chưa có hệ quyền/sandbox runtime |
 | i18n/l10n | ⬜ | Chưa có module locale/translation |
 | Diagnostics/Profiling | 🚧 | Có `vpp bác sĩ`, chưa có profiler chuyên sâu |
-| GUI/Đồ họa | ⬜ | Chưa có thư viện GUI chuẩn |
+| GUI/Đồ họa | ⬜ | Chưa có gói GUI chuẩn |
 | OS bindings nâng cao | 🚧 | Có env/platform/path/directory/sleep; chưa có process API và syscall nâng cao |
 
 ---

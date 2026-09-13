@@ -1,3 +1,0 @@
-// Đường dẫn tương thích cũ; giữ API test builder của starter web trước đây.
-nhập "gói/thư viện/khởi động/web.vi";
-nhập "gói/thư viện/mạng/kiểm thử/api.vi";

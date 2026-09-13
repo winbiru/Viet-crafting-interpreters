@@ -538,7 +538,7 @@ void testParserBuildsStructuredLocalFileImports() {
     using namespace vietvm::frontend;
 
     const std::string source =
-        "nhập src/tests/thư viện/math.vi như toan;\n"
+        "nhập src/tests/gói/math.vi như toan;\n"
         "nhập \"modules/quoted.vi\";\n"
         "nhập 'modules/single.vi' như mot;\n"
         "nhập /tmp/vpp/ /absolute.vi;";
@@ -552,7 +552,7 @@ void testParserBuildsStructuredLocalFileImports() {
     const AstStatement &singleQuoted = program.statements[2];
     expect(unquoted.kind == AstStatementKind::Import &&
                unquoted.importForm == AstImportForm::LocalSourceFile &&
-               unquoted.importSpec.target == "src/tests/thư viện/math.vi" &&
+               unquoted.importSpec.target == "src/tests/gói/math.vi" &&
                !unquoted.importSpec.quoted &&
                unquoted.importSpec.alias == "toan" &&
                unquoted.importSpec.hasSemicolon,
@@ -1420,6 +1420,46 @@ void testSemanticResolvesClassMembersAndEnforcesVisibility() {
            "private-member validation covers both a method call and a method used as a value");
 }
 
+void testSemanticResolvesObjectConstructionAndInstanceMembers() {
+    const vietvm::frontend::AstProgram program = parseSource(
+        "lớp Counter { hàm add(a, b) { trả về a + b; } }\n"
+        "hàm main() { c = Counter(); c.value = 7; in c.value; in c.add(2, 3); }");
+    const vietvm::compiler::SemanticModel model =
+        vietvm::compiler::analyzeSemantics(program);
+    expect(!model.hasErrors(),
+           "class construction and instance member syntax resolve without semantic diagnostics");
+
+    const auto *constructor = findCallByCallee(program, "Counter");
+    const auto *method = findCallByCallee(program, "c.add");
+    const auto *constructorBinding = constructor == nullptr
+        ? nullptr : model.callBindingForExpression(constructor->id);
+    const auto *methodBinding = method == nullptr
+        ? nullptr : model.callBindingForExpression(method->id);
+    expect(constructorBinding != nullptr &&
+               constructorBinding->kind ==
+                   vietvm::compiler::CallTargetKind::ClassConstructor,
+           "calling a class name resolves as a runtime class constructor");
+    expect(methodBinding != nullptr &&
+               methodBinding->kind ==
+                   vietvm::compiler::CallTargetKind::InstanceMethod,
+           "calling a dotted local-variable member resolves as an instance method");
+
+    bool foundFieldBinding = false;
+    for (const auto &expression : program.expressions) {
+        if (expression.kind != vietvm::frontend::AstExpressionKind::Name ||
+            expression.text != "c.value") {
+            continue;
+        }
+        const auto *binding = model.bindingForExpression(expression.id);
+        foundFieldBinding = foundFieldBinding ||
+            (binding != nullptr &&
+             binding->kind == vietvm::compiler::BindingKind::InstanceMember &&
+             binding->receiverName == "c" && binding->memberName == "value");
+    }
+    expect(foundFieldBinding,
+           "dotted local-variable field access carries receiver/member semantic metadata");
+}
+
 void testSemanticLoopHeaderResolvesIndexedCallArguments() {
     const vietvm::frontend::AstProgram program = parseSource(
         "hàm known() { trả về 1; }\n"
@@ -1588,6 +1628,7 @@ int main() {
     testSemanticKeepsSiblingFunctionBindingsIsolated();
     testSemanticAssignmentReusesCatchBindingAndPostfixDeclaresOnce();
     testSemanticResolvesClassMembersAndEnforcesVisibility();
+    testSemanticResolvesObjectConstructionAndInstanceMembers();
     testSemanticLoopHeaderResolvesIndexedCallArguments();
     testSemanticStrictPolicyRejectsUnresolvedNames();
     testSemanticDuplicateDeclarationDiagnostic();

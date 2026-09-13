@@ -16,39 +16,38 @@
 #include "vpp/core/project_layout.h"
 
 namespace vietvm { namespace compiler {
-    std::unordered_set<std::string> importedFiles;
-    void clearImportedFiles() { importedFiles.clear(); }
+    std::unordered_set<std::string> &importedFileSet() {
+        return activeCompilationRegistryState().importedFiles;
+    }
 
-    struct MethodAccessInfo {
-        std::string ownerClass;
-        std::string visibility;
-    };
-
-    static std::unordered_map<std::string, MethodAccessInfo> g_methodAccess;
-    static std::vector<std::string> g_classContextStack;
+    void clearImportedFiles() { importedFileSet().clear(); }
 
     void clearClassAccessState() {
-        g_methodAccess.clear();
-        g_classContextStack.clear();
+        auto &state = activeCompilationRegistryState();
+        state.methodAccess.clear();
+        state.classContextStack.clear();
     }
 
     void pushClassContext(const std::string &className) {
-        g_classContextStack.push_back(className);
+        activeCompilationRegistryState().classContextStack.push_back(className);
     }
 
     void popClassContext() {
-        if (!g_classContextStack.empty()) g_classContextStack.pop_back();
+        auto &stack = activeCompilationRegistryState().classContextStack;
+        if (!stack.empty()) stack.pop_back();
     }
 
     std::string currentClassContext() {
-        if (g_classContextStack.empty()) return "";
-        return g_classContextStack.back();
+        const auto &stack = activeCompilationRegistryState().classContextStack;
+        if (stack.empty()) return "";
+        return stack.back();
     }
 
     void registerClassMethodVisibility(const std::string &fullMethodName,
                                        const std::string &ownerClass,
                                        const std::string &visibility) {
-        g_methodAccess[fullMethodName] = MethodAccessInfo{ownerClass, visibility};
+        activeCompilationRegistryState().methodAccess[fullMethodName] =
+            MethodAccessInfo{ownerClass, visibility};
     }
 
     std::string resolveCallableNameInContext(const std::string &name,
@@ -68,8 +67,9 @@ namespace vietvm { namespace compiler {
     }
 
     void validateCallableAccess(const std::string &resolvedName) {
-        auto it = g_methodAccess.find(resolvedName);
-        if (it == g_methodAccess.end()) return;
+        const auto &methodAccess = activeCompilationRegistryState().methodAccess;
+        auto it = methodAccess.find(resolvedName);
+        if (it == methodAccess.end()) return;
 
         const std::string &owner = it->second.ownerClass;
         const std::string &visibility = it->second.visibility;
@@ -101,16 +101,18 @@ namespace vietvm { namespace compiler {
         auto idMatchesResolvedName = [&](int candidateId) {
             int resolvedNameIndex = StringPool::findString(resolvedName);
             if (resolvedNameIndex < 0) return false;
-            auto itName = hamMap::hamNameIndexMap.find(candidateId);
-            if (itName == hamMap::hamNameIndexMap.end()) return false;
+            auto &nameMap = hamMap::nameIndexMap();
+            auto itName = nameMap.find(candidateId);
+            if (itName == nameMap.end()) return false;
             return itName->second == resolvedNameIndex;
         };
 
         auto itSym = symTab.find(resolvedName);
         if (itSym != symTab.end()) {
             int maybeId = itSym->second;
-            auto itCode = hamMap::hamBytecodeMap.find(maybeId);
-            if (itCode != hamMap::hamBytecodeMap.end() &&
+            auto &bytecodeMap = hamMap::bytecodeMap();
+            auto itCode = bytecodeMap.find(maybeId);
+            if (itCode != bytecodeMap.end() &&
                 !itCode->second.empty() &&
                 idMatchesResolvedName(maybeId)) {
                 return maybeId;
@@ -121,7 +123,7 @@ namespace vietvm { namespace compiler {
 
         int nameIndex = StringPool::findString(resolvedName);
         if (nameIndex >= 0) {
-            for (const auto &kv : hamMap::hamNameIndexMap) {
+            for (const auto &kv : hamMap::nameIndexMap()) {
                 if (kv.second == nameIndex) return kv.first;
             }
         }
@@ -139,20 +141,40 @@ namespace vietvm { namespace compiler {
         const std::string &moduleAlias = spec.alias;
         namespace fs = std::filesystem;
 
+        fs::path resolutionBase = activeCompilationRegistryState().importResolutionBase;
+        if (resolutionBase.empty()) {
+            // Compatibility path for context-less compilation. Context-driven
+            // callers capture/set this base before compilation begins.
+            resolutionBase = fs::current_path();
+        }
+        try {
+            resolutionBase = fs::absolute(resolutionBase).lexically_normal();
+        } catch (...) {
+            resolutionBase = resolutionBase.lexically_normal();
+        }
+
+        auto absoluteLexical = [&](const fs::path &candidate) {
+            fs::path resolved = candidate.is_absolute()
+                                    ? candidate
+                                    : resolutionBase / candidate;
+            try {
+                return fs::absolute(resolved).lexically_normal();
+            } catch (...) {
+                return resolved.lexically_normal();
+            }
+        };
+
         // Determine path
         std::string path = spec.target;
 
-        // Package shortcuts for the bundled standard library.
-        if (path == "thư viện chuẩn" || path == "thu_vien_chuan" || path == "stdlib") {
-            path = vietvm::core::kBundledLibraryMainFile;
-        }
-        if (path == vietvm::core::kBundledLibraryDirectory || path == "thu_vien") {
-            path = vietvm::core::kBundledLibraryMainFile;
+        // Package shortcuts for the bundled standard packages.
+        if (path == "stdlib" || path == "chuẩn") {
+            path = vietvm::core::kStandardPackageMainFile;
         }
 
         // A package name may be quoted when it contains spaces, for example:
         //
-        //     nhập "cốt lõi";
+        //     nhập "lõi";
         //
         // Quoting must not turn that into a file-only import.  Treat a target
         // without a path component or extension as a package candidate whether
@@ -167,28 +189,32 @@ namespace vietvm { namespace compiler {
                                     requestedPath.extension().empty();
         const std::string bareModule = path;
 
-        // Keep the previous bare `vpp_*` imports working. Bundled modules now
-        // live under the single `gói/thư viện` package; local project packages
-        // with the same name still take precedence during lookup below.
+        // Keep the previous bare `vpp_*` imports working. Standard packages
+        // live directly under `gói/<tên>`; `gói/chuẩn` is only the aggregate
+        // entrypoint. Local project packages with the same name still take
+        // precedence during lookup below.
         static const std::unordered_map<std::string, std::string> packageAliases = {
-            {"vpp_core", "cốt lõi"},
-            {"vpp_io", "vào ra"},
+            {"vpp_core", "lõi"},
+            {"cốt lõi", "lõi"},
+            {"vpp_io", "nhập xuất"},
+            {"vào ra", "nhập xuất"},
             {"vpp_http", "mạng"},
             {"vpp_web", "mạng"},
             {"mạng web", "mạng"},
             {"vpp_system", "hệ thống"},
             {"vpp_data", "dữ liệu"},
             {"vpp_app", "ứng dụng"},
-            {"vpp_starters", "khởi động"},
+            {"vpp_starters", "dựng"},
+            {"khởi động", "dựng"},
         };
         static const std::unordered_set<std::string> bundledPackageNames = {
-            "cốt lõi",
-            "vào ra",
+            "lõi",
+            "nhập xuất",
             "mạng",
             "hệ thống",
             "dữ liệu",
             "ứng dụng",
-            "khởi động",
+            "dựng",
             "kiểm thử",
         };
 
@@ -227,16 +253,19 @@ namespace vietvm { namespace compiler {
                 }
 
                 static const std::unordered_map<std::string, std::string> compatibilityModuleRedirects = {
-                    {"thư viện/cấu hình/cấu hình.vi", "thư viện/vào ra/cấu hình.vi"},
-                    {"thư viện/hỗ trợ/nhật ký.vi", "thư viện/vào ra/nhật ký.vi"},
-                    {"thư viện/hỗ trợ/xác thực.vi", "thư viện/cốt lõi/xác thực.vi"},
-                    {"thư viện/thời gian/đồng hồ.vi", "thư viện/vào ra/đồng hồ.vi"},
-                    {"thư viện/mạng/api.vi", "thư viện/mạng/kiểm thử/api.vi"},
-                    {"thư viện/mạng web/main.vi", "thư viện/mạng/main.vi"},
-                    {"thư viện/mạng web/json.vi", "thư viện/mạng/json.vi"},
-                    {"thư viện/mạng web/rest.vi", "thư viện/mạng/rest.vi"},
-                    {"thư viện/mạng web/kiểm thử/api.vi", "thư viện/mạng/kiểm thử/api.vi"},
-                    {"thư viện/ứng dụng/ứng dụng máy chủ.vi", "thư viện/ứng dụng/tương thích/api project.vi"},
+                    {"chuẩn/hỗ trợ/nhật ký.vi", "nhập xuất/nhật ký.vi"},
+                    {"chuẩn/hỗ trợ/xác thực.vi", "lõi/xác thực.vi"},
+                    {"ứng dụng/tương thích/api.vi", "ứng dụng/cầu nối/api.vi"},
+                    {"chuẩn/ứng dụng/tương thích/api.vi", "ứng dụng/cầu nối/api.vi"},
+                    {"khởi động/khởi động web.vi", "dựng/web.vi"},
+                    {"khởi động/khởi động dữ liệu.vi", "dựng/dữ liệu.vi"},
+                    {"khởi động/khởi động ứng dụng.vi", "dựng/ứng dụng.vi"},
+                    {"dựng/khởi động web.vi", "dựng/web.vi"},
+                    {"dựng/khởi động dữ liệu.vi", "dựng/dữ liệu.vi"},
+                    {"dựng/khởi động ứng dụng.vi", "dựng/ứng dụng.vi"},
+                    {"chuẩn/khởi động/khởi động web.vi", "dựng/web.vi"},
+                    {"chuẩn/khởi động/khởi động dữ liệu.vi", "dựng/dữ liệu.vi"},
+                    {"chuẩn/khởi động/khởi động ứng dụng.vi", "dựng/ứng dụng.vi"},
                 };
 
                 auto leafRedirect = compatibilityModuleRedirects.find(relativePath.generic_u8string());
@@ -245,6 +274,24 @@ namespace vietvm { namespace compiler {
                                             vietvm::core::utf8Path(leafRedirect->second);
                 } else {
                     auto package = relativePath.begin();
+                    bool groupedStandardPackages = false;
+                    if (package != relativePath.end()) {
+                        const std::string groupName = package->u8string();
+                        if (groupName == vietvm::core::kStandardPackageDirectory) {
+                            groupedStandardPackages = true;
+                            ++package;
+                        }
+                    }
+
+                    if (groupedStandardPackages && package != relativePath.end() &&
+                        package->u8string() == vietvm::core::kPackageEntryFile) {
+                        compatibilityPackageRedirect =
+                            vietvm::core::utf8Path(vietvm::core::kPrimaryPackageDirectory) /
+                            vietvm::core::utf8Path(vietvm::core::kStandardPackageDirectory) /
+                            vietvm::core::utf8Path(vietvm::core::kPackageEntryFile);
+                        package = relativePath.end();
+                    }
+
                     if (package != relativePath.end()) {
                         std::string canonicalPackage;
                         const std::string packageName = package->u8string();
@@ -257,7 +304,6 @@ namespace vietvm { namespace compiler {
 
                         if (!canonicalPackage.empty()) {
                             compatibilityPackageRedirect = vietvm::core::utf8Path(vietvm::core::kPrimaryPackageDirectory) /
-                                                    vietvm::core::utf8Path(vietvm::core::kBundledLibraryDirectory) /
                                                     vietvm::core::utf8Path(canonicalPackage);
                             for (auto rest = std::next(package); rest != relativePath.end(); ++rest) {
                                 compatibilityPackageRedirect /= *rest;
@@ -267,13 +313,9 @@ namespace vietvm { namespace compiler {
                 }
             }
         }
-        // Make absolute and normalized path (if possible)
-        fs::path abs;
-        try {
-            abs = fs::absolute(p).lexically_normal();
-        } catch (...) {
-            abs = p;
-        }
+        // Resolve relative imports against the compilation context rather than
+        // the process working directory.
+        fs::path abs = absoluteLexical(p);
 
         auto resolvePackageAtBase = [&](const fs::path &base, const std::string &packageName) {
             const fs::path packagePath = vietvm::core::utf8Path(packageName);
@@ -281,42 +323,35 @@ namespace vietvm { namespace compiler {
             fs::path packageRoot = base / packagePath;
             fs::path packageSource = base / vietvm::core::utf8Path(packageName + ".vi");
             if (fs::exists(packageMain)) {
-                abs = fs::absolute(packageMain).lexically_normal();
+                abs = absoluteLexical(packageMain);
                 return true;
             }
             if (fs::exists(packageRoot) && fs::is_regular_file(packageRoot)) {
-                abs = fs::absolute(packageRoot).lexically_normal();
+                abs = absoluteLexical(packageRoot);
                 return true;
             }
             if (fs::exists(packageSource)) {
-                abs = fs::absolute(packageSource).lexically_normal();
+                abs = absoluteLexical(packageSource);
                 return true;
-            }
-            if (bundledPackageNames.find(packageName) != bundledPackageNames.end()) {
-                fs::path bundledMain = vietvm::core::packageEntryPath(
-                    base / vietvm::core::utf8Path(vietvm::core::kBundledLibraryDirectory) / packagePath);
-                if (fs::exists(bundledMain)) {
-                    abs = fs::absolute(bundledMain).lexically_normal();
-                    return true;
-                }
             }
             return false;
         };
 
         // If resolved path does not exist, attempt to locate the file by searching
-        // upward from the current working directory and appending the requested path.
-        // This helps with imports like "src/tests/..." when the process cwd is build/bin.
+        // upward from the compilation base and appending the requested path.
+        // This keeps imports like "src/tests/..." working when the entry file lives
+        // below the repository root without mutating or consulting process cwd.
         if (!fs::exists(abs)) {
-            for (fs::path dir = fs::current_path(); ; dir = dir.parent_path()) {
+            for (fs::path dir = resolutionBase; ; dir = dir.parent_path()) {
                 fs::path cand = dir / p;
                 if (fs::exists(cand)) {
-                    abs = fs::absolute(cand).lexically_normal();
+                    abs = absoluteLexical(cand);
                     break;
                 }
                 if (!compatibilityPackageRedirect.empty()) {
                     fs::path redirected = dir / compatibilityPackageRedirect;
                     if (fs::exists(redirected)) {
-                        abs = fs::absolute(redirected).lexically_normal();
+                        abs = absoluteLexical(redirected);
                         break;
                     }
                 }
@@ -342,19 +377,20 @@ namespace vietvm { namespace compiler {
 
         // Installed releases keep the standard library beside the executable.
         // The installer exposes that location through VPP_HOME, so a project
-        // outside the repository can import gói/thư viện/... and bare bundled
+        // outside the repository can import gói/chuẩn/... and bare bundled
         // module names.
         if (!fs::exists(abs)) {
             if (const char *vppHome = std::getenv(vietvm::core::kEnvVppHome)) {
-                const fs::path vppHomePath = vietvm::core::utf8Path(vppHome);
+                const fs::path vppHomePath =
+                    absoluteLexical(vietvm::core::utf8Path(vppHome));
                 fs::path bundled = vppHomePath / p;
                 if (fs::exists(bundled)) {
-                    abs = fs::absolute(bundled).lexically_normal();
+                    abs = absoluteLexical(bundled);
                 }
                 if (!fs::exists(abs) && !compatibilityPackageRedirect.empty()) {
                     fs::path redirected = vppHomePath / compatibilityPackageRedirect;
                     if (fs::exists(redirected)) {
-                        abs = fs::absolute(redirected).lexically_normal();
+                        abs = absoluteLexical(redirected);
                     }
                 }
                 if (!fs::exists(abs) && bareModuleName) {
@@ -374,13 +410,14 @@ namespace vietvm { namespace compiler {
 
         std::string canonical = abs.u8string();
 
-        if (vietvm::compiler::importedFiles.find(canonical) != vietvm::compiler::importedFiles.end()) {
+        auto &importedFiles = vietvm::compiler::importedFileSet();
+        if (importedFiles.find(canonical) != importedFiles.end()) {
             // already imported in this compile session — no-op
             return;
         }
 
         // Mark as in-progress before reading/compiling to prevent circular imports
-        vietvm::compiler::importedFiles.insert(canonical);
+        importedFiles.insert(canonical);
 
         try {
             // read file
@@ -393,10 +430,12 @@ namespace vietvm { namespace compiler {
             ss << ifs.rdbuf();
             std::string src = ss.str();
 
-            // Compile the module for its registration side effects only.
-            // Imported functions/strings are recorded in the global registries;
-            // the returned module bytecode is not merged or executed here.
+            // Compile the module once for registration side effects and retain its
+            // top-level bytecode as a runtime initializer. Recursive imports append
+            // their initializers first, producing dependency-before-importer order.
             auto moduleBytecode = compilePipeline(src, keywordMap, false).bytecode;
+            activeCompilationRegistryState().moduleInitializers.push_back(
+                CompiledModuleInitializer{canonical, moduleBytecode});
 
             // Namespace alias: register ns.funcName -> same function id
             if (!moduleAlias.empty()) {
@@ -414,13 +453,13 @@ namespace vietvm { namespace compiler {
 
             // Keep variable IDs in caller module disjoint from imported function IDs.
             int maxHamId = -1;
-            for (const auto &kv : vietvm::compiler::hamMap::hamBytecodeMap) {
+            for (const auto &kv : vietvm::compiler::hamMap::bytecodeMap()) {
                 if (kv.first > maxHamId) maxHamId = kv.first;
             }
             if (nextId <= maxHamId) nextId = maxHamId + 1;
         } catch (...) {
             // Rollback on failure
-            vietvm::compiler::importedFiles.erase(canonical);
+            importedFiles.erase(canonical);
             throw;
         }
     }

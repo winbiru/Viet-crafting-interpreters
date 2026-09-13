@@ -2,6 +2,14 @@
   "name": "V++",
   "version": "0.1.0",
   "gói": [
-    "thư viện"
+    "chuẩn",
+    "lõi",
+    "nhập xuất",
+    "hệ thống",
+    "mạng",
+    "dữ liệu",
+    "ứng dụng",
+    "dựng",
+    "kiểm thử"
   ]
 }
