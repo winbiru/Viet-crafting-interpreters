@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <optional>
@@ -587,7 +588,7 @@ std::optional<std::pair<std::string, std::string>> parsePropertyAssignment(
 std::string readPropertyByKey(const std::string &filePath,
                               const std::string &key,
                               const std::string &fallback) {
-    std::ifstream ifs(filePath);
+    std::ifstream ifs(std::filesystem::u8path(filePath));
     if (!ifs.is_open()) {
         return fallback;
     }

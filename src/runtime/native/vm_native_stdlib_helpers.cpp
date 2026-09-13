@@ -34,6 +34,11 @@ bool filesystemError(const std::error_code &ec,
     return true;
 }
 
+bool isMissingPathError(const std::error_code &ec) noexcept {
+    return ec == std::errc::no_such_file_or_directory ||
+           ec == std::errc::not_a_directory;
+}
+
 bool toStrictInt(const StackValue &value, int &out) {
     if (std::holds_alternative<int>(value)) {
         out = std::get<int>(value);
@@ -190,6 +195,14 @@ bool handleNativeFoundationFunction(const std::string &fn,
             value = fs::is_regular_file(path, ec);
         } else {
             value = fs::is_directory(path, ec);
+        }
+        // Query predicates have boolean semantics: a missing path is simply
+        // false. Windows reports ENOENT through error_code for some of these
+        // overloads while POSIX implementations commonly return false with a
+        // clear error_code, so normalize that platform difference here.
+        if (isMissingPathError(ec)) {
+            ec.clear();
+            value = false;
         }
         if (filesystemError(ec, fn, err)) return true;
         result = make_int_value(value ? 1 : 0);

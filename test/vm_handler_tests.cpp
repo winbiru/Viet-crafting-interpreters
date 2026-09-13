@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 
+#include "common/vm_native_stdlib_helpers.h"
 #include "vpp/runtime/vm_fixture.h"
 
 namespace {
@@ -186,6 +187,21 @@ void testOutputHandlerUsesSink() {
            "output handler", "OP_IN must consume the emitted value");
 }
 
+void testFilesystemPredicatesTreatMissingPathAsFalse() {
+    StackValue result = make_null_value();
+    std::string error;
+    const std::vector<StackValue> args = {
+        make_string_value(".tmp_vpp_path_that_must_not_exist/không-có.txt")
+    };
+
+    const bool handled = vietvm::helpers::handleNativeFoundationFunction(
+        "là tệp", args, result, error);
+    expect(handled, "filesystem predicate", "là tệp must be handled by foundation native layer");
+    expect(error.empty(), "filesystem predicate", "a missing path must not be reported as an OS error");
+    expect(asInt(result, "filesystem predicate") == 0,
+           "filesystem predicate", "là tệp(missing) must return 0");
+}
+
 } // namespace
 
 int main() {
@@ -198,6 +214,7 @@ int main() {
     testExceptionHandlerState();
     testLoopControlHandlerState();
     testOutputHandlerUsesSink();
+    testFilesystemPredicatesTreatMissingPathAsFalse();
 
     if (failures != 0) {
         std::cerr << failures << " VM handler unit test(s) failed\n";

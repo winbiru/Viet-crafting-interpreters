@@ -4,6 +4,7 @@
 #include <variant>
 #include <string>
 #include <fstream>
+#include <filesystem>
 #include <sstream>
 #include <ctime>
 #include <cstdio>
@@ -236,7 +237,8 @@ static bool executeNativeStdlibFunction(int hamIdOrName,
     if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnFileLineCount) ||
         vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnFileWordCount)) {
         if (!requireNativeArgumentCount(args, fn, 1, err)) return true;
-        std::ifstream input(vietvm::helpers::argToRawString(args[0]));
+        std::ifstream input(std::filesystem::u8path(
+            vietvm::helpers::argToRawString(args[0])));
         if (!input.is_open()) {
             err = vietvm::messages::formatMessage(
                 vietvm::messages::kNativeFileOpenForReadFailed, {fn});
@@ -258,7 +260,8 @@ static bool executeNativeStdlibFunction(int hamIdOrName,
 
     if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnIoReadFile)) {
         if (!requireNativeArgumentCount(args, fn, 1, err)) return true;
-        std::ifstream ifs(vietvm::helpers::argToRawString(args[0]));
+        std::ifstream ifs(std::filesystem::u8path(
+            vietvm::helpers::argToRawString(args[0])));
         if (!ifs.is_open()) {
             err = vietvm::messages::formatMessage(
                 vietvm::messages::kNativeFileOpenForReadFailed, {fn});
@@ -272,7 +275,8 @@ static bool executeNativeStdlibFunction(int hamIdOrName,
 
     if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnIoWriteFile)) {
         if (!requireNativeArgumentCount(args, fn, 2, err)) return true;
-        std::ofstream ofs(vietvm::helpers::argToRawString(args[0]));
+        std::ofstream ofs(std::filesystem::u8path(
+            vietvm::helpers::argToRawString(args[0])));
         if (!ofs.is_open()) {
             err = vietvm::messages::formatMessage(
                 vietvm::messages::kNativeFileOpenForWriteFailed, {fn});
@@ -309,7 +313,8 @@ static bool executeNativeStdlibFunction(int hamIdOrName,
 
     if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnReadConfig)) {
         if (!requireNativeArgumentCount(args, fn, 1, err)) return true;
-        std::ifstream ifs(vietvm::helpers::argToRawString(args[0]));
+        std::ifstream ifs(std::filesystem::u8path(
+            vietvm::helpers::argToRawString(args[0])));
         if (!ifs.is_open()) {
             err = vietvm::messages::formatMessage(
                 vietvm::messages::kNativeFileOpenForReadFailed, {fn});
