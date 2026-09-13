@@ -310,6 +310,11 @@ bool encodeJson(const StackValue &value,
         out += "null";
         return true;
     }
+    if (std::holds_alternative<ClassHandle>(value) ||
+        std::holds_alternative<InstanceHandle>(value)) {
+        err = "json tạo: không hỗ trợ lớp hoặc đối tượng runtime";
+        return false;
+    }
 
     const void *identity = nullptr;
     if (std::holds_alternative<ListHandle>(value)) identity = std::get<ListHandle>(value).get();

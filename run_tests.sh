@@ -59,7 +59,7 @@ http_get() {
   local output="$2"
   if [ -n "${VPP_HTTP_FILE_TRANSPORT_DIR:-}" ]; then
     cat >"$tmpdir/http_probe.vi" <<EOF
-nhập gói/thư viện/main.vi;
+nhập gói/chuẩn/main.vi;
 
 hàm main() {
     in mạng lấy("$url");
@@ -167,7 +167,7 @@ else
 fi
 
 # Verify bare Vietnamese package imports from a directory outside the repository.
-# This exercises the installed-layout lookup: $VPP_HOME/gói/thư viện/<tên package>/main.vi.
+# This exercises the installed-layout lookup: $VPP_HOME/gói/chuẩn/<tên package>/main.vi.
 echo "== Running Vietnamese package import via VPP_HOME =="
 VPP_HOME_TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/vpp-package-import.XXXXXX")
 vpp_home_out="$tmpdir/kiem_tra_package_tieng_viet_vpp_home.output"
@@ -208,6 +208,9 @@ TESTS=(
   src/tests/kiem_tra_tong_hop_khong_xung_dot.vi
   src/tests/kiem_tra_rong_va_map.vi
   src/tests/kiem_tra_namespace_module.vi
+  src/tests/kiem_tra_module_lifecycle.vi
+  src/tests/kiem_tra_module_khoi_tao_mot_lan.vi
+  src/tests/kiem_tra_module_alias_lifecycle.vi
   src/tests/kiem_tra_package_modules.vi
   src/tests/kiem_tra_package_tieng_viet.vi
   src/tests/kiem_tra_stdlib.vi
@@ -218,21 +221,22 @@ TESTS=(
   src/tests/kiem_tra_rest_json_jwt.vi
   src/tests/kiem_tra_stdlib_tinh_toan.vi
   src/tests/kiem_tra_stdlib_mo_rong.vi
-  src/tests/kiem_tra_thu_vien_kiem_thu.vi
-  src/tests/kiem_tra_thu_vien_mang.vi
+  src/tests/kiem_tra_goi_kiem_thu.vi
+  src/tests/kiem_tra_goi_mang.vi
   src/tests/kiem_tra_stdlib_nen_tang.vi
   src/tests/kiem_tra_json_phan_tich.vi
   src/tests/kiem_tra_json_an_toan.vi
   src/tests/kiem_tra_stdlib_io_config_time.vi
   src/tests/kiem_tra_api_thuc_thu.vi
   src/tests/kiem_tra_api_db_project.vi
-  src/tests/kiem_tra_thu_vien_spring.vi
-  src/tests/kiem_tra_thu_vien_lop.vi
+  src/tests/kiem_tra_goi_dung.vi
+  src/tests/kiem_tra_nhat_ky.vi
   src/tests/kiem_tra_lambda_hof_mac_dinh.vi
   src/tests/kiem_tra_list_literal.vi
   src/tests/kiem_tra_collection_bai_63_75.vi
   src/tests/kiem_tra_toan_tu_moi.vi
   src/tests/kiem_tra_lop_truy_cap.vi
+  src/tests/kiem_tra_object_model.vi
   src/tests/kiem_tra_cu_phap_modifier_cu.vi
   src/tests/kiem_tra_tra_ve.vi
   src/tests/program.vi

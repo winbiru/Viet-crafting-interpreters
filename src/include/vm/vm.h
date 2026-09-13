@@ -5,6 +5,7 @@
 #include <stack>
 #include <unordered_map>
 #include <string>
+#include <string_view>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -14,6 +15,7 @@
 #include "instruction.h"
 #include "../common/vm_callframe.h"
 #include "vpp/runtime/value.h"
+#include "vpp/runtime/module.h"
 
 class VMRuntimeFixture;
 
@@ -26,6 +28,10 @@ public:
     void run();
     VM(const std::vector<Instruction>& code, const std::vector<std::string>& pool);
     void setOutputSink(OutputSink sink);
+    bool addModuleInitializer(std::string identity,
+                              std::vector<Instruction> initializer);
+    std::optional<vietvm::runtime::ModuleState> moduleState(
+        std::string_view identity) const noexcept;
 
     std::unordered_map<int, std::vector<Instruction>> hamBytecodeMap;
     // nameIndex → hamId mapping for function name lookup (shared with child VMs for recursion)
@@ -43,6 +49,8 @@ private:
 
     std::unordered_map<int, StackValue> variables;  // fallback global var store
     OutputSink outputSink;
+    vietvm::runtime::ModuleTable moduleTable;
+    std::unordered_map<std::string, ClassHandle> classTable;
 
     // Call stack for function calls
     std::vector<CallFrame> callStack;
@@ -91,6 +99,7 @@ private:
     void executeCallOpcode(const Instruction& instr);
     void executeValueOpcode(const Instruction& instr);
     void executeIndexOpcode(const Instruction& instr);
+    void executeObjectOpcode(const Instruction& instr);
     void executeVariableOpcode(const Instruction& instr);
     bool executeSwitchOpcode(const Instruction& instr);
     void executeLoopControlOpcode(const Instruction& instr);
@@ -99,6 +108,7 @@ private:
     bool executeBranchOpcode(const Instruction& instr);
     void executeOutputOpcode(const Instruction& instr);
     void emitOutput(const StackValue& value);
+    void initializeModules();
 
     // Runtime optimization/maintenance (MVP)
     bool runJitCompiledLinear();

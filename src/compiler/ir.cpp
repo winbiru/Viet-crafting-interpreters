@@ -138,10 +138,12 @@ public:
           kInvalidIrValueId), expressionState_(program.expressions.size(), 0),
           cyclicExpression_(program.expressions.size(), false),
           expressionSymbols_(program.expressions.size(), -1),
+          expressionBindings_(program.expressions.size(), nullptr),
           callBindings_(program.expressions.size(), nullptr) {
         for (const BindingResult &binding : semantic.expressionBindings) {
             if (binding.expression < expressionSymbols_.size()) {
                 expressionSymbols_[binding.expression] = compatibleSymbolId(binding.symbol);
+                expressionBindings_[binding.expression] = &binding;
             }
         }
         for (const CallBinding &binding : semantic.callBindings) {
@@ -245,7 +247,10 @@ private:
                 break;
 
             case AstExpressionKind::Name:
-                result.opcode = IrValueOpcode::LoadName;
+                result.opcode = expressionBindings_[sourceId] != nullptr &&
+                                expressionBindings_[sourceId]->kind == BindingKind::InstanceMember
+                    ? IrValueOpcode::LoadProperty
+                    : IrValueOpcode::LoadName;
                 supported = !source.text.empty();
                 break;
 
@@ -264,7 +269,12 @@ private:
 
             case AstExpressionKind::Assignment:
                 result.opcode = hasNameKind(program_, source.left)
-                    ? IrValueOpcode::StoreName : IrValueOpcode::StoreIndex;
+                    ? (source.left < expressionBindings_.size() &&
+                       expressionBindings_[source.left] != nullptr &&
+                       expressionBindings_[source.left]->kind == BindingKind::InstanceMember
+                           ? IrValueOpcode::StoreProperty
+                           : IrValueOpcode::StoreName)
+                    : IrValueOpcode::StoreIndex;
                 if (result.text.empty()) result.text = "=";
                 supported = hasNameKind(program_, source.left) ||
                             (program_.expression(source.left) != nullptr &&
@@ -274,14 +284,22 @@ private:
                 break;
 
             case AstExpressionKind::CompoundAssignment:
-                result.opcode = IrValueOpcode::StoreName;
+                result.opcode = source.left < expressionBindings_.size() &&
+                                expressionBindings_[source.left] != nullptr &&
+                                expressionBindings_[source.left]->kind == BindingKind::InstanceMember
+                    ? IrValueOpcode::StoreProperty
+                    : IrValueOpcode::StoreName;
                 supported = !source.text.empty() && hasNameKind(program_, source.left);
                 addOperand(source.left);
                 addOperand(source.right);
                 break;
 
             case AstExpressionKind::Postfix:
-                result.opcode = IrValueOpcode::StoreName;
+                result.opcode = source.operand < expressionBindings_.size() &&
+                                expressionBindings_[source.operand] != nullptr &&
+                                expressionBindings_[source.operand]->kind == BindingKind::InstanceMember
+                    ? IrValueOpcode::StoreProperty
+                    : IrValueOpcode::StoreName;
                 supported = !source.text.empty() && hasNameKind(program_, source.operand);
                 addOperand(source.operand);
                 break;
@@ -518,6 +536,7 @@ private:
     std::vector<unsigned char> expressionState_;
     std::vector<bool> cyclicExpression_;
     std::vector<int> expressionSymbols_;
+    std::vector<const BindingResult *> expressionBindings_;
     std::vector<const CallBinding *> callBindings_;
 };
 
@@ -640,7 +659,9 @@ const char *irValueOpcodeName(IrValueOpcode opcode) noexcept {
         case IrValueOpcode::Index: return "index";
         case IrValueOpcode::StoreIndex: return "store_index";
         case IrValueOpcode::LoadName: return "load_name";
+        case IrValueOpcode::LoadProperty: return "load_property";
         case IrValueOpcode::StoreName: return "store_name";
+        case IrValueOpcode::StoreProperty: return "store_property";
         case IrValueOpcode::Unary: return "unary";
         case IrValueOpcode::Binary: return "binary";
         case IrValueOpcode::Call: return "call";

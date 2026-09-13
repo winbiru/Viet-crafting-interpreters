@@ -1,4 +1,4 @@
-nhập "gói/thư viện/main.vi";
+nhập "gói/chuẩn/main.vi";
 
 hàm main() {
     // Chuỗi UTF-8 phải tính/reverse theo code point, không theo byte.

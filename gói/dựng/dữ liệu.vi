@@ -1,0 +1,4 @@
+// Dựng ứng dụng dữ liệu.
+nhập "gói/lõi/main.vi";
+nhập "gói/nhập xuất/main.vi";
+nhập "gói/dữ liệu/main.vi";

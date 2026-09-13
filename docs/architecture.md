@@ -1,6 +1,6 @@
 # Kiến trúc V++
 
-V++ tách compiler, runtime, tooling và thư viện ngôn ngữ thành các lớp có dependency một chiều. Mục tiêu là để CLI chỉ ghép các thành phần; parser không biết HTTP/DB, và runtime không đọc compiler global state.
+V++ tách compiler, runtime, tooling và các gói ngôn ngữ thành các lớp có dependency một chiều. Mục tiêu là để CLI chỉ ghép các thành phần; parser không biết HTTP/DB, và runtime không đọc compiler global state.
 
 ## C++ modules
 
@@ -38,19 +38,24 @@ CMake định nghĩa các target `vpp-core`, `vpp-bytecode`, `vpp-frontend`, `vp
 
 CLI compile source rồi copy function bytecode/name table vào `VM`. VM không còn đọc `compiler::hamMap` hay `StringPool` global ở runtime. Điều này làm runtime có thể nhận bytecode từ nguồn khác ngoài CLI.
 
-Top-level compile hiện đã có `CompilationContext`, nhưng compiler internals vẫn còn
-dùng một số mutable global registries. `CompilationContext` hiện là ranh giới lifecycle
-để reset/snapshot/cleanup state; bước tiếp theo của API embedding là dời toàn bộ
-registries vào context và trả về một `BytecodeProgram` bất biến. Cho tới lúc đó compiler
-chưa re-entrant/parallel-safe hoàn toàn và các header `compile*.h` chưa phải public API ổn định.
+Top-level compile hiện đã có `CompilationContext` sở hữu `StringPool`, function maps,
+import set, class/access state và `importResolutionBase` của riêng compilation. Các API
+legacy `StringPool` và `hamMap` chỉ còn là facade trỏ tới context đang active trên thread
+hiện tại, nên recursive import vẫn dùng chung đúng session mà caller không phải đọc
+global state. Hai top-level compilation độc lập trên hai thread đã có regression kiểm
+tra isolation cả registry lẫn import path, kể cả hai module cùng tên nằm ở hai thư mục
+khác nhau. Public embedding API/`BytecodeProgram` vẫn chưa chốt.
 
 Lifecycle hiện tại được khóa như sau: một top-level compilation phải đi qua
 `resetCompilationState()` hoặc overload `compilePipeline(CompilationContext&, ...)`.
-Reset này xóa `StringPool`, function bytecode/name registries (`hamMap`), danh sách
-file đã import và class/access-control state. Overload có `CompilationContext` tự
-reset trước compile, snapshot StringPool/function registries sau compile rồi cleanup
-global state cả ở success lẫn exception. Recursive import không được reset giữa
-chừng vì module con phải dùng chung registry của compilation đang hoạt động.
+Reset này xóa state của registry đang active. Overload có `CompilationContext` bind
+context làm owner trước compile; `StringPool`, function bytecode/name registries,
+import set và class/access-control state vì thế được ghi trực tiếp vào context thay vì
+snapshot từ storage toàn cục sau cùng. Recursive import không reset giữa chừng vì
+module con phải dùng chung registry của compilation đang hoạt động. Relative import
+được resolve từ `CompilationContext.importResolutionBase`; CLI truyền thư mục của entry
+source vào context nên compiler không cần đổi process cwd. Để giữ hành vi tương thích
+cho native file/database dùng path tương đối, CLI chỉ đổi cwd trong scope `VM::run()`.
 
 `VM::run()` hiện giữ lifecycle/GC và routing; logic opcode đã được tách thành các
 handler theo nhóm. Unit test handler dùng `VMRuntimeFixture` ở
@@ -87,12 +92,46 @@ V++ VM
 Lexer gắn span nguồn vào token để parser, AST và các diagnostic sau đó có cùng
 toạ độ nguồn. Parser tạo statement tree và expression arena; semantic analysis tạo
 scope tree rồi bind expression/call theo ExprId. Lambda body có scope, binding và
-capture metadata riêng; import local/package đã có `AstImportSpec`, module graph và
-structured IR payload, còn export semantics và các tolerant token region chưa được
-resolve hoàn toàn. IR cho optimizer là
+capture metadata riêng. Import local/package đã có `AstImportSpec`, module graph và
+structured IR payload. Với local `.vi`, Phase 1 module semantics đã bổ sung stable
+module identity, export index cho top-level function/class public hoặc không ghi
+visibility, namespace alias đưa vào `SemanticEnvironment`, và semantic call kind
+`ImportedFunction`. Production semantic pass chỉ index direct imports để tránh quét
+lặp trong recursive compile; graph API vẫn hỗ trợ traversal đệ quy cho tooling.
+Explicit export/re-export và package/bare-module resolver vẫn chưa hoàn tất. IR cho optimizer là
 biểu diễn trung gian **không kiểu**.
 
-V++ vẫn là runtime giá trị động (`int`/`double`/`string`/`rỗng`/map scalar).
+Module lifecycle có hai lớp tách biệt. Compiler dùng `ModuleInitializationTracker` cho
+semantic/indexing contract và giữ top-level bytecode của từng local module trong
+`CompilationContext.moduleInitializers`. Recursive import ghi metadata theo thứ tự
+dependency-first. CLI chuyển danh sách này sang `VM::addModuleInitializer()` trước khi
+`VM::run()`.
+
+Runtime sở hữu `vietvm::runtime::ModuleTable` và không phụ thuộc compiler headers.
+Mỗi module đi qua `uninitialized → initializing → initialized/failed`; initializer chỉ
+chạy một lần, module `Initialized` không chạy lại ở lần `VM::run()` sau, còn lỗi khởi tạo
+để lại state `Failed`. Child VM dùng cho function call không khởi tạo lại module. Module
+table này cũng là ranh giới runtime rõ ràng để bổ sung module/global roots khi tracing GC
+được triển khai.
+
+V++ vẫn là runtime giá trị động. `StackValue` hiện mang scalar
+(`int`/`double`/`string`/`rỗng`), collection handle và object handle. Runtime object
+substrate gồm `RuntimeClass` với optional superclass + method table theo runtime function
+ID, và `RuntimeInstance` với field map. Method lookup đi từ class hiện tại lên superclass,
+field lưu `StackValue`, class/instance so sánh theo identity. Runtime layer này không phụ
+thuộc compiler.
+
+Object model hiện có lát cắt ngôn ngữ end-to-end đầu tiên. Dotted name vẫn là một token
+để giữ tương thích với module alias và static class method; semantic analysis chỉ biến
+`receiver.member` thành instance member khi `receiver` bind tới biến runtime. Call tới
+tên class được đánh dấu `ClassConstructor`; call tới instance member được đánh dấu
+`InstanceMethod`. Untyped IR có `LoadProperty`/`StoreProperty`, còn bytecode bổ sung
+`OP_TAO_LOP`, `OP_THEM_PHUONG_THUC`, `OP_TAO_DOI_TUONG`, `OP_DOC_THUOC_TINH`,
+`OP_GAN_THUOC_TINH` và `OP_GOI_PHUONG_THUC`. Vì vậy `obj = Class()`, field read/write và
+bound-method dispatch chạy qua production Direct IR. Constructor hiện chỉ zero-arg và
+method receiver chỉ dùng để dispatch; chưa có implicit `this`/`self`, inheritance syntax
+hay enforcement visibility cho instance member. Đây là phần còn lại trước tracing GC.
+
 Vì vậy pipeline hiện chưa áp dụng typed IR hay một type policy tĩnh: không suy
 ra rằng semantic analysis đồng nghĩa với static type checker. Một quyết định
 riêng về dynamic, static hay gradual typing là điều kiện trước khi bổ sung IR
@@ -100,7 +139,7 @@ có kiểu.
 
 Compiler hiện chỉ có một production backend: **Direct IR → bytecode**. Nếu program chứa
 region mà direct emitter chưa hỗ trợ, pipeline báo lỗi compiler tường minh thay vì
-materialize token rồi chuyển sang backend cũ. Regression gate khóa toàn bộ **61 chương
+materialize token rồi chuyển sang backend cũ. Regression gate khóa toàn bộ **70 chương
 trình `.vi`** trong corpus ở direct IR.
 
 CLI đưa ranh giới này ra dùng thực tế qua `--dump-ast <file.vi>` và
@@ -133,7 +172,7 @@ Recursive IR lowering
   ↓
 Direct IR → bytecode emission theo từng opcode/feature
   ↓
-Unsupported Direct IR = 0 trên regression corpus (đã đạt 61/61)
+Unsupported Direct IR = 0 trên regression corpus (đã đạt 70/70)
 ```
 
 IR vẫn có metadata `UnsupportedDirectRegion` để analyzer/diagnostic nhận diện phần chưa
@@ -150,10 +189,10 @@ regression runtime/output hiện hành vẫn do các runner `.vi` đảm nhiệm
 được tạo lại hàng loạt manifest để làm test xanh: mỗi thay đổi fingerprint phải
 được review như một thay đổi bytecode/compiler-state có chủ ý.
 
-Gate hiện tự động quét **61/61** chương trình `.vi`, xác nhận compiler snapshots khớp
+Gate hiện tự động quét **70/70** chương trình `.vi`, xác nhận compiler snapshots khớp
 và yêu cầu mọi program có `unsupportedDirectIrRegions == 0`. Source test dùng
 `CompilationContext` cho từng top-level compile, sau đó chạy lại corpus theo thứ tự
-ngược trong cùng process để khóa reset/CWD isolation. Toàn corpus chính là direct-IR
+ngược trong cùng process để khóa reset/import-base isolation. Toàn corpus chính là direct-IR
 contract; không còn backend selector hay token compiler để quay lại.
 
 Các bước trên dùng IR không kiểu và giữ semantics động hiện hành. Quyết định
@@ -169,21 +208,21 @@ Header public mới bắt đầu dưới `src/include/vpp/`, ví dụ `vpp/core/
 
 ## Thư viện V++ và framework modules
 
-Thư viện chuẩn là package `.vi` duy nhất dưới `gói/`; các module tiếng Việt
-nằm bên trong nó:
+Thư viện chuẩn là tập package `.vi` nằm trực tiếp dưới `gói/`. Package `chuẩn`
+chỉ là entrypoint tổng hợp:
 
 ```text
 gói/
-└── thư viện/
-    ├── main.vi             # entrypoint đầy đủ
-    ├── cốt lõi/            # toán, UTF-8 cơ bản, collections, chuyển kiểu, random
-    ├── vào ra/             # tệp, path/thư mục, cấu hình, đồng hồ, nhật ký
-    ├── hệ thống/           # env, nền tảng, sleep
-    ├── mạng/               # HTTP client/server + REST + JSON parse/serialize
-    ├── dữ liệu/            # phân trang và database adapter
-    ├── ứng dụng/           # lifecycle/bootstrap chung
-    ├── khởi động/          # facade web, dữ liệu và ứng dụng full stack
-    └── kiểm thử/           # assertion helpers, không import mặc định
+├── chuẩn/
+│   └── main.vi             # entrypoint tổng hợp
+├── lõi/                    # toán, UTF-8 cơ bản, collections, chuyển kiểu, random
+├── nhập xuất/              # tệp, path/thư mục, cấu hình, đồng hồ, nhật ký
+├── hệ thống/               # env, nền tảng, sleep
+├── mạng/                   # HTTP client/server + REST + JSON parse/serialize
+├── dữ liệu/                # phân trang và database adapter
+├── ứng dụng/               # lifecycle chung + cầu nối tùy chọn
+├── dựng/                   # facade web, dữ liệu và ứng dụng full stack
+└── kiểm thử/               # assertion helpers, không import mặc định
 ```
 
 Program mới nên import package hẹp nhất. Tên package có khoảng trắng có thể
@@ -191,19 +230,21 @@ Program mới nên import package hẹp nhất. Tên package có khoảng trắn
 dấu nháy:
 
 ```vi
-nhập cốt lõi;
+nhập lõi;
+nhập "nhập xuất";
 nhập "hệ thống";
 nhập mạng;
-nhập "gói/thư viện/mạng/kiểm thử/api.vi";
+nhập dựng;
+nhập "gói/mạng/kiểm thử/api.vi";
 ```
 
-Bare import ưu tiên package cùng tên của project, rồi mới tìm module bundle
-dưới `gói/thư viện/`. Các đường dẫn phẳng cũ như `gói/cốt lõi/...` được
-redirect khi không còn file local tương ứng.
-`gói/thư viện/ứng dụng/main.vi` không import API-project adapter tương thích;
+Bare import ưu tiên package cùng tên của project, rồi mới tìm package bundle
+dưới `$VPP_HOME/gói/`. Các alias package cũ được xử lý ở resolver khi cần,
+không xuất hiện trong layout canonical.
+`gói/ứng dụng/main.vi` không import `gói/ứng dụng/cầu nối/api.vi`;
 routes/schema/token của một project mẫu không phải standard library.
 
-Các module này là bundled optional modules, chưa phải package độc lập có dependency/version resolver. HTTP, REST và JSON hiện cùng nằm trong package `mạng` để dùng một entrypoint thống nhất. JSON object/array được ánh xạ trực tiếp sang map/list runtime. `cốt lõi` nối native cho chuyển kiểu/type và random; `vào ra` nối path/filesystem; `hệ thống` nối env/platform/sleep. Các native helper này không phụ thuộc CLI/stdout.
+Các package này được bundle cùng runtime nhưng chưa có dependency/version resolver. HTTP, REST và JSON hiện cùng nằm trong package `mạng` để dùng một entrypoint thống nhất. JSON object/array được ánh xạ trực tiếp sang map/list runtime. `lõi` nối native cho chuyển kiểu/type và random; `nhập xuất` nối path/filesystem; `hệ thống` nối env/platform/sleep. Các native helper này không phụ thuộc CLI/stdout.
 
 ## Examples, templates và tests
 
@@ -233,5 +274,5 @@ sample trong `src/tests/`. Regression có vài fixture legacy được track
 
 1. Source mới phải có một CMake target owner; không thêm lại thư mục `helpers` chung.
 2. Không để frontend phụ thuộc runtime/native.
-3. Không đưa framework web/dữ liệu/ứng dụng vào `gói/thư viện/cốt lõi` hoặc import full-stack mặc định.
+3. Không đưa framework web/dữ liệu/ứng dụng vào `gói/lõi` hoặc import full-stack mặc định.
 4. Thay đổi public behavior cần test `.vi` và expected output; example/scaffold cần smoke test.

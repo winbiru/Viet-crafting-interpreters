@@ -1,0 +1,12 @@
+lớp công khai Counter {
+    hàm công khai add(a, b) {
+        trả về a + b;
+    }
+};
+
+hàm main() {
+    c = Counter();
+    c.value = 7;
+    in c.value;
+    in c.add(2, 3);
+};

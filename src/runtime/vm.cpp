@@ -39,6 +39,7 @@
 #include "vpp/core/message_constants.h"
 #include "vpp/core/text.h"
 #include "vpp/runtime/vm_fixture.h"
+#include "vpp/runtime/object.h"
 
 #if defined(_WIN32) && defined(_MSC_VER)
 #ifndef popen
@@ -516,6 +517,51 @@ void VM::setOutputSink(OutputSink sink) {
     outputSink = std::move(sink);
 }
 
+bool VM::addModuleInitializer(std::string identity,
+                              std::vector<Instruction> initializer) {
+    return moduleTable.add(std::move(identity), std::move(initializer));
+}
+
+std::optional<vietvm::runtime::ModuleState> VM::moduleState(
+    std::string_view identity) const noexcept {
+    return moduleTable.state(identity);
+}
+
+void VM::initializeModules() {
+    for (const std::string &identity : moduleTable.order()) {
+        const auto state = moduleTable.state(identity);
+        if (!state.has_value()) continue;
+        if (*state == vietvm::runtime::ModuleState::Initialized) continue;
+        if (*state == vietvm::runtime::ModuleState::Failed) {
+            throw std::runtime_error(vietvm::messages::formatMessage(
+                vietvm::messages::kVmModuleInitializationFailed, {identity}));
+        }
+        if (!moduleTable.begin(identity)) {
+            throw std::runtime_error(vietvm::messages::formatMessage(
+                vietvm::messages::kVmModuleInitializationInvalidState, {identity}));
+        }
+
+        const vietvm::runtime::RuntimeModule *module = moduleTable.module(identity);
+        try {
+            VM initializer(module == nullptr ? std::vector<Instruction>{}
+                                             : module->initializer,
+                           stringPool);
+            initializer.outputSink = outputSink;
+            initializer.variables = variables;
+            initializer.classTable = classTable;
+            initializer.hamBytecodeMap = hamBytecodeMap;
+            initializer.functionTableByNameIndex = functionTableByNameIndex;
+            initializer.run();
+            variables = std::move(initializer.variables);
+            classTable = std::move(initializer.classTable);
+            (void)moduleTable.complete(identity);
+        } catch (...) {
+            (void)moduleTable.fail(identity);
+            throw;
+        }
+    }
+}
+
 void VM::emitOutput(const StackValue& value) {
     if (!outputSink) return;
     outputSink(vietvm::messages::messageText(vietvm::messages::kVmOutputPrefix)
@@ -539,6 +585,12 @@ bool toBool(const StackValue& value) {
     if (std::holds_alternative<TupleHandle>(value)) {
         const TupleHandle &tuple = std::get<TupleHandle>(value);
         return tuple != nullptr && !tuple->elements.empty();
+    }
+    if (std::holds_alternative<ClassHandle>(value)) {
+        return std::get<ClassHandle>(value) != nullptr;
+    }
+    if (std::holds_alternative<InstanceHandle>(value)) {
+        return std::get<InstanceHandle>(value) != nullptr;
     }
     return false;
 }
@@ -769,6 +821,7 @@ void VM::invokeFunction(int argc, int hamIdOrName, Opcode op, int curPc) {
     VM funcVM(it->second, stringPool);
     funcVM.outputSink = outputSink;
     funcVM.variables = variables;
+    funcVM.classTable = classTable;
     funcVM.callStack.clear();
     funcVM.callStack.push_back(callStack.back());
     funcVM.hamBytecodeMap = hamBytecodeMap;
@@ -776,6 +829,7 @@ void VM::invokeFunction(int argc, int hamIdOrName, Opcode op, int curPc) {
     funcVM.run();
 
     variables = funcVM.variables;
+    classTable = funcVM.classTable;
     if (!funcVM.stack.empty()) {
         stack.push_back(funcVM.stack.back());
     }
@@ -999,6 +1053,131 @@ void VM::executeIndexOpcode(const Instruction& instr) {
             vietvm::messages::kVmIndexOutOfRange), instr.op, pc);
     }
     list->elements[static_cast<std::size_t>(index)] = std::move(value);
+}
+
+void VM::executeObjectOpcode(const Instruction& instr) {
+    auto stringAt = [&](int index, std::string_view errorMessage) -> const std::string & {
+        if (index < 0 || index >= static_cast<int>(stringPool.size())) {
+            throw runtime_error_op(vietvm::messages::formatMessage(errorMessage), instr.op, pc);
+        }
+        return stringPool[static_cast<std::size_t>(index)];
+    };
+
+    switch (instr.op) {
+        case OP_TAO_LOP: {
+            const std::string &className = stringAt(
+                instr.operandIndex, vietvm::messages::kVmObjectInvalidClassNameIndex);
+            if (classTable.find(className) == classTable.end()) {
+                classTable.emplace(className, vietvm::runtime::createClass(className));
+            }
+            return;
+        }
+        case OP_THEM_PHUONG_THUC: {
+            const std::string &className = stringAt(
+                instr.operand, vietvm::messages::kVmObjectInvalidClassNameIndex);
+            const std::string &methodName = stringAt(
+                instr.operandIndex, vietvm::messages::kVmObjectInvalidMemberNameIndex);
+            const auto foundClass = classTable.find(className);
+            if (foundClass == classTable.end()) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmObjectClassNotFound, {className}), instr.op, pc);
+            }
+            (void)vietvm::runtime::defineMethod(
+                foundClass->second, methodName, instr.operandValue);
+            return;
+        }
+        case OP_TAO_DOI_TUONG: {
+            const std::string &className = stringAt(
+                instr.operandIndex, vietvm::messages::kVmObjectInvalidClassNameIndex);
+            const auto foundClass = classTable.find(className);
+            if (foundClass == classTable.end()) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmObjectClassNotFound, {className}), instr.op, pc);
+            }
+            stack.push_back(make_instance_value(
+                vietvm::runtime::createInstance(foundClass->second)));
+            return;
+        }
+        case OP_DOC_THUOC_TINH: {
+            const std::string &memberName = stringAt(
+                instr.operandIndex, vietvm::messages::kVmObjectInvalidMemberNameIndex);
+            if (stack.empty()) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmObjectNotEnoughOperands), instr.op, pc);
+            }
+            StackValue receiver = stack.back();
+            stack.pop_back();
+            if (!std::holds_alternative<InstanceHandle>(receiver)) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmObjectExpectedInstance), instr.op, pc);
+            }
+            const auto field = vietvm::runtime::getInstanceField(
+                std::get<InstanceHandle>(receiver), memberName);
+            if (!field.has_value()) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmObjectPropertyNotFound, {memberName}), instr.op, pc);
+            }
+            stack.push_back(*field);
+            return;
+        }
+        case OP_GAN_THUOC_TINH: {
+            const std::string &memberName = stringAt(
+                instr.operandIndex, vietvm::messages::kVmObjectInvalidMemberNameIndex);
+            if (stack.size() < 2) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmObjectNotEnoughOperands), instr.op, pc);
+            }
+            StackValue value = stack.back();
+            stack.pop_back();
+            StackValue receiver = stack.back();
+            stack.pop_back();
+            if (!std::holds_alternative<InstanceHandle>(receiver)) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmObjectExpectedInstance), instr.op, pc);
+            }
+            if (!vietvm::runtime::setInstanceField(
+                    std::get<InstanceHandle>(receiver), memberName, std::move(value))) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmObjectExpectedInstance), instr.op, pc);
+            }
+            return;
+        }
+        case OP_GOI_PHUONG_THUC: {
+            const std::string &methodName = stringAt(
+                instr.operandIndex, vietvm::messages::kVmObjectInvalidMemberNameIndex);
+            const int argc = instr.operand;
+            if (argc < 0 || stack.size() < static_cast<std::size_t>(argc + 1)) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmObjectNotEnoughOperands), instr.op, pc);
+            }
+
+            std::vector<StackValue> args(static_cast<std::size_t>(argc));
+            for (int index = argc - 1; index >= 0; --index) {
+                args[static_cast<std::size_t>(index)] = stack.back();
+                stack.pop_back();
+            }
+            StackValue receiver = stack.back();
+            stack.pop_back();
+            if (!std::holds_alternative<InstanceHandle>(receiver)) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmObjectExpectedInstance), instr.op, pc);
+            }
+            const InstanceHandle &instance = std::get<InstanceHandle>(receiver);
+            const auto method = instance == nullptr
+                ? std::optional<int>{}
+                : vietvm::runtime::lookupMethod(instance->klass, methodName);
+            if (!method.has_value()) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmObjectMethodNotFound, {methodName}), instr.op, pc);
+            }
+            for (const StackValue &argument : args) stack.push_back(argument);
+            invokeFunction(argc, *method, instr.op, static_cast<int>(pc));
+            return;
+        }
+        default:
+            throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmUnknownOpcode), instr.op, pc);
+    }
 }
 
 void VM::executeVariableOpcode(const Instruction& instr) {
@@ -1444,6 +1623,7 @@ void VM::executeOutputOpcode(const Instruction& instr) {
 
 void VM::run() {
     VMRuntimeFixture runtime(*this);
+    initializeModules();
     const bool gcEnabled = vietvm::helpers::hasEnvVar(vietvm::constants::kEnvVppEnableGc)
                         || vietvm::helpers::hasEnvVar(vietvm::constants::kEnvVietvmEnableGc);
     int gcInterval = vietvm::constants::kDefaultGcInterval;
@@ -1538,6 +1718,15 @@ void VM::run() {
             case OP_DOC_CHI_SO:
             case OP_GAN_CHI_SO:
                 runtime.executeIndex(instr);
+                break;
+
+            case OP_TAO_LOP:
+            case OP_THEM_PHUONG_THUC:
+            case OP_TAO_DOI_TUONG:
+            case OP_DOC_THUOC_TINH:
+            case OP_GAN_THUOC_TINH:
+            case OP_GOI_PHUONG_THUC:
+                runtime.executeObject(instr);
                 break;
 
             case OP_IN:

@@ -221,7 +221,7 @@ try {
 
     # Keep the Windows UTF-8 filesystem regression independent from the HTTP
     # assertion. The source is outside the repository, so imports must use
-    # VPP_HOME/gói/thư viện.
+    # VPP_HOME/gói/chuẩn.
     $probeDir = Join-Path $sessionDir "import-utf8"
     New-Item -ItemType Directory -Path $probeDir -Force | Out-Null
     $probeFile = Join-Path $probeDir "import-utf8.vi"
@@ -379,16 +379,16 @@ try {
         "src/tests/kiem_tra_rest_json_jwt.vi",
         "src/tests/kiem_tra_stdlib_tinh_toan.vi",
         "src/tests/kiem_tra_stdlib_mo_rong.vi",
-        "src/tests/kiem_tra_thu_vien_kiem_thu.vi",
-        "src/tests/kiem_tra_thu_vien_mang.vi",
+        "src/tests/kiem_tra_goi_kiem_thu.vi",
+        "src/tests/kiem_tra_goi_mang.vi",
         "src/tests/kiem_tra_stdlib_nen_tang.vi",
         "src/tests/kiem_tra_json_phan_tich.vi",
         "src/tests/kiem_tra_json_an_toan.vi",
         "src/tests/kiem_tra_stdlib_io_config_time.vi",
         "src/tests/kiem_tra_api_thuc_thu.vi",
         "src/tests/kiem_tra_api_db_project.vi",
-        "src/tests/kiem_tra_thu_vien_spring.vi",
-        "src/tests/kiem_tra_thu_vien_lop.vi",
+        "src/tests/kiem_tra_goi_dung.vi",
+        "src/tests/kiem_tra_nhat_ky.vi",
         "src/tests/kiem_tra_lambda_hof_mac_dinh.vi",
         "src/tests/kiem_tra_list_literal.vi",
         "src/tests/kiem_tra_toan_tu_moi.vi",

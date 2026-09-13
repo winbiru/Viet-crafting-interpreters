@@ -56,6 +56,7 @@ public:
     void executeCall(const Instruction &instruction) { vm_.executeCallOpcode(instruction); }
     void executeValue(const Instruction &instruction) { vm_.executeValueOpcode(instruction); }
     void executeIndex(const Instruction &instruction) { vm_.executeIndexOpcode(instruction); }
+    void executeObject(const Instruction &instruction) { vm_.executeObjectOpcode(instruction); }
     void executeVariable(const Instruction &instruction) { vm_.executeVariableOpcode(instruction); }
     bool executeSwitch(const Instruction &instruction) { return vm_.executeSwitchOpcode(instruction); }
     void executeLoopControl(const Instruction &instruction) { vm_.executeLoopControlOpcode(instruction); }

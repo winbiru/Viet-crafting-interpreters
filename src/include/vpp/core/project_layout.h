@@ -13,8 +13,10 @@ inline constexpr const char *kCliVersion = "0.1.0";
 inline constexpr const char *kProjectManifestFile = "vpp.json";
 inline constexpr const char *kPackageEntryFile = "main.vi";
 inline constexpr const char *kPrimaryPackageDirectory = u8"gói";
-inline constexpr const char *kBundledLibraryDirectory = u8"thư viện";
-inline constexpr const char *kBundledLibraryMainFile = u8"gói/thư viện/main.vi";
+// `gói/chuẩn` là package tổng hợp. Các package chuẩn (`lõi`, `mạng`, ...)
+// nằm trực tiếp dưới `gói/` để đúng layout `gói/<tên>/main.vi`.
+inline constexpr const char *kStandardPackageDirectory = u8"chuẩn";
+inline constexpr const char *kStandardPackageMainFile = u8"gói/chuẩn/main.vi";
 inline constexpr const char *kEnvVppHome = "VPP_HOME";
 
 inline constexpr std::array<const char *, 3> kPackageDirectoryNames = {

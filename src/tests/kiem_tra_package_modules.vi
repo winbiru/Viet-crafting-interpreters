@@ -1,17 +1,15 @@
 // Đường dẫn package tiếng Việt có khoảng trắng phải dùng chuỗi được trích dẫn.
-// Test này xác nhận toàn bộ entrypoint canonical trong cây gói/thư viện/.
-nhập "gói/thư viện/cốt lõi/main.vi";
-nhập "gói/thư viện/vào ra/main.vi";
-nhập "gói/thư viện/mạng/main.vi";
-nhập "gói/thư viện/mạng/main.vi";
-nhập "gói/thư viện/dữ liệu/main.vi";
-nhập "gói/thư viện/ứng dụng/main.vi";
-nhập "gói/thư viện/khởi động/main.vi";
-
-// Các đường dẫn phẳng và shim cũ phải redirect về cùng module canonical.
-nhập "gói/cốt lõi/main.vi";
-nhập "gói/thư viện/hỗ trợ/xác thực.vi";
-nhập "stdlib";
+// Test này xác nhận các package chuẩn nằm trực tiếp dưới gói/.
+nhập "gói/lõi/main.vi";
+nhập "gói/nhập xuất/main.vi";
+nhập "gói/hệ thống/main.vi";
+nhập "gói/mạng/main.vi";
+nhập "gói/dữ liệu/main.vi";
+nhập "gói/ứng dụng/main.vi";
+nhập "gói/dựng/main.vi";
+nhập "gói/kiểm thử/main.vi";
+nhập "gói/ứng dụng/cầu nối/api.vi";
+nhập "gói/chuẩn/main.vi";
 
 hàm main() {
     in nối chuỗi("cốt", " lõi");

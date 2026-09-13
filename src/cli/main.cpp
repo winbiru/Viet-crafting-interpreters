@@ -9,10 +9,8 @@
 #include <unordered_map>
 #include <filesystem>
 #include <cstdlib>
-#include "compiler/compiler.h"
 #include "vm/vm.h"
 #include "frontend/keywords.h"
-#include "common/storeString.h"
 #include "vpp/compiler/pipeline.h"
 #include "vpp/tooling/tooling.h"
 #include "vpp/core/message_constants.h"
@@ -22,13 +20,21 @@
 namespace fs = std::filesystem;
 namespace messages = vietvm::messages;
 
-// RAII guard to restore current working directory on scope exit
-struct CwdGuard {
-    fs::path saved;
-    explicit CwdGuard(fs::path p) : saved(std::move(p)) {}
-    ~CwdGuard() { try { fs::current_path(saved); } catch(...) {} }
-    CwdGuard(const CwdGuard&) = delete;
-    CwdGuard& operator=(const CwdGuard&) = delete;
+class RuntimeCwdGuard {
+public:
+    RuntimeCwdGuard() : saved_(fs::current_path()) {}
+    ~RuntimeCwdGuard() {
+        try {
+            fs::current_path(saved_);
+        } catch (...) {
+        }
+    }
+
+    RuntimeCwdGuard(const RuntimeCwdGuard &) = delete;
+    RuntimeCwdGuard &operator=(const RuntimeCwdGuard &) = delete;
+
+private:
+    fs::path saved_;
 };
 
 static void printErrorMessage(std::string_view fallback,
@@ -68,16 +74,12 @@ enum class SnippetMode {
 };
 
 static int runSnippet(const std::string &source,
-                      const fs::path &cwd,
+                      const fs::path &resolutionBase,
                       SnippetMode mode) {
-    CwdGuard cwdGuard(fs::current_path());
-    if (!cwd.empty()) {
-        fs::current_path(cwd);
-    }
-
     const bool emitMainCall = mode == SnippetMode::Execute ||
                               mode == SnippetMode::Disassemble;
     vietvm::compiler::CompilationContext compilationContext;
+    compilationContext.importResolutionBase = resolutionBase;
     vietvm::compiler::CompilationArtifacts artifacts =
         vietvm::compiler::compilePipeline(
             compilationContext, source, keywordMap, emitMainCall);
@@ -107,6 +109,17 @@ static int runSnippet(const std::string &source,
     vm.hamBytecodeMap = compilationContext.functionBytecode;
     for (const auto &entry : compilationContext.functionNameIndices) {
         vm.functionTableByNameIndex[entry.second] = entry.first;
+    }
+    for (const auto &module : compilationContext.moduleInitializers) {
+        (void)vm.addModuleInitializer(module.identity, module.bytecode);
+    }
+
+    // Relative runtime file/database paths historically resolve beside the
+    // entry source file. Import resolution above no longer depends on process
+    // cwd, so keep this compatibility scope limited to VM execution.
+    RuntimeCwdGuard runtimeCwdGuard;
+    if (!resolutionBase.empty()) {
+        fs::current_path(resolutionBase);
     }
     vm.run();
     return EXIT_SUCCESS;
@@ -781,40 +794,13 @@ int main(int argc, char* argv[]) {
         const std::string defaultFile = "../../src/tests/kiem_tra_stdlib_tinh_toan.vi";
         if (argc == 1 && fs::exists(defaultFile)) {
             std::string source = readFile(defaultFile);
-
-            // run default file with cwd set to its parent so imports resolve
-            // Use RAII-style guard to always restore cwd even on exception
-            CwdGuard cwdGuard(fs::current_path());
             const fs::path defaultPath = vietvm::core::utf8Path(defaultFile);
-            if (!defaultPath.parent_path().empty()) {
-                fs::current_path(defaultPath.parent_path());
-            }
-
-            vietvm::compiler::resetCompilationState();
-
-            std::vector<Instruction> bytecode = compileSource(source, keywordMap);
-            // cwd will be restored by CwdGuard destructor
-            const auto& stringPool = vietvm::compiler::StringPool::getPool();
-
-            // // In bytecode để debug
-            // std::cout << "=> Danh sách bytecode cho file mã nguồn (" << defaultFile << "):" << std::endl;
-            // for (size_t i = 0; i < bytecode.size(); ++i) {
-            //     const Instruction &instr = bytecode[i];
-            //     std::cout << "[" << i << "] "
-            //               << "op: " << instr.op << " (" << name_op(instr.op) << ")";
-            //     if (instr.operandIndex != -1)
-            //         std::cout << ", operandIndex: " << instr.operandIndex;
-            //     if (instr.operand != 0)
-            //         std::cout << ", operand: " << instr.operand;
-            //     std::cout << std::endl;
-            // }
-            VM vm(bytecode, stringPool);
-            connectVmOutput(vm);
-
-            // copy compiled functions into VM
-            vm.hamBytecodeMap = vietvm::compiler::hamMap::hamBytecodeMap;
-            vm.run();
-            return EXIT_SUCCESS;
+            return runSnippet(
+                source,
+                defaultPath.parent_path().empty()
+                    ? fs::current_path()
+                    : defaultPath.parent_path(),
+                SnippetMode::Execute);
         }
 
         std::string testDir = "../../src/tests";
@@ -826,24 +812,13 @@ int main(int argc, char* argv[]) {
                               << std::endl;
 
                     std::string source = readFile(filename);
-                    // Ensure imports inside each test file resolve relative to the test file location
-                    // Use RAII-style guard to always restore cwd even on exception
-                    CwdGuard cwdGuard(fs::current_path());
                     const fs::path testPath = vietvm::core::utf8Path(filename);
-                    if (!testPath.parent_path().empty()) {
-                        fs::current_path(testPath.parent_path());
-                    }
-
-                    vietvm::compiler::resetCompilationState();
-                    std::vector<Instruction> bytecode = compileSource(source, keywordMap);
-                    // cwd will be restored by CwdGuard destructor
-                    const auto& stringPool = vietvm::compiler::StringPool::getPool();
-
-                    VM vm(bytecode, stringPool);
-                    connectVmOutput(vm);
-                    // copy compiled functions into VM
-                    vm.hamBytecodeMap = vietvm::compiler::hamMap::hamBytecodeMap;
-                    vm.run();
+                    (void)runSnippet(
+                        source,
+                        testPath.parent_path().empty()
+                            ? fs::current_path()
+                            : testPath.parent_path(),
+                        SnippetMode::Execute);
                 }
             }
         } else {

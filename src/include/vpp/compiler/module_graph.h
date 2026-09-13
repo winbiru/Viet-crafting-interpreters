@@ -2,9 +2,13 @@
 
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
+#include "vpp/compiler/semantic.h"
 #include "vpp/frontend/ast.h"
 
 namespace vietvm::compiler {
@@ -87,6 +91,81 @@ public:
 private:
     LocalModuleResolver resolver_;
     LocalModuleImportScanner importScanner_;
+};
+
+// Public surface discovered from one source module. Until V++ gains an
+// explicit `export` statement, top-level functions/classes keep the historical
+// behavior: unspecified/public declarations are exported, private/protected
+// declarations are module-internal.
+struct ModuleExportSymbol {
+    std::string name;
+    SemanticSymbolKind kind = SemanticSymbolKind::Function;
+    vietvm::frontend::SourceSpan declaration{};
+};
+
+struct LocalModuleSemanticRecord {
+    std::filesystem::path path;
+    std::string identity;
+    std::vector<ModuleExportSymbol> exports;
+};
+
+// Compile-time module index. The graph owns import identity/order while this
+// layer adds the namespace surface consumed by semantic analysis.
+struct LocalModuleSemanticIndex {
+    std::string entryIdentity;
+    LocalModuleGraph graph;
+    std::vector<LocalModuleSemanticRecord> modules;
+
+    const LocalModuleSemanticRecord *module(std::string_view identity) const noexcept;
+    const ModuleExportSymbol *exportedSymbol(std::string_view moduleIdentity,
+                                             std::string_view name) const noexcept;
+
+    // Produces only direct imports of `importerIdentity`. An import alias
+    // qualifies the exported name (`alias.symbol`); an unaliased import keeps
+    // the legacy flat namespace behavior.
+    SemanticEnvironment semanticEnvironmentFor(
+        std::string_view importerIdentity) const;
+};
+
+enum class ModuleIndexMode {
+    DirectOnly,
+    Recursive,
+};
+
+// Builds import graph + export surface from the structured AST. Package/bare
+// module resolution still belongs to the package resolver; this phase covers
+// explicit local .vi imports only.
+LocalModuleSemanticIndex buildLocalModuleSemanticIndex(
+    LocalModuleResolver resolver,
+    std::string entryIdentity,
+    const std::vector<vietvm::frontend::AstImportSpec> &rootImports,
+    ModuleIndexMode mode = ModuleIndexMode::Recursive);
+
+enum class ModuleInitializationState {
+    Uninitialized,
+    Initializing,
+    Initialized,
+    Failed,
+};
+
+const char *moduleInitializationStateName(
+    ModuleInitializationState state) noexcept;
+
+// Runtime-facing lifecycle contract. It is intentionally independent of VM
+// storage so object-model/GC work can later make the module table a GC root
+// without changing the transition semantics.
+class ModuleInitializationTracker {
+public:
+    explicit ModuleInitializationTracker(const LocalModuleSemanticIndex &index);
+
+    std::optional<ModuleInitializationState> state(
+        std::string_view identity) const noexcept;
+    bool begin(std::string_view identity);
+    bool complete(std::string_view identity);
+    bool fail(std::string_view identity);
+
+private:
+    std::unordered_map<std::string, ModuleInitializationState> states_;
 };
 
 } // namespace vietvm::compiler

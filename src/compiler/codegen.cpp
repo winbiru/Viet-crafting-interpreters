@@ -30,6 +30,16 @@ bool isCompoundAssignment(const std::string &op) noexcept {
     return op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=";
 }
 
+std::pair<std::string, std::string> splitRuntimeMemberName(
+    const std::string &name) {
+    const std::size_t separator = name.find('.');
+    if (separator == std::string::npos || separator == 0 ||
+        separator + 1 >= name.size()) {
+        return {};
+    }
+    return {name.substr(0, separator), name.substr(separator + 1)};
+}
+
 bool isExactSourceToken(const IrInstruction &instruction,
                         const IrValue &value) noexcept {
     for (const vietvm::frontend::Token &token : instruction.tokens) {
@@ -402,6 +412,13 @@ bool supportsValue(const IrProgram &program,
                         methodIsAllocatedBeforeUse(context, *value);
             break;
 
+        case IrValueOpcode::LoadProperty: {
+            const auto member = splitRuntimeMemberName(value->text);
+            supported = value->operands.empty() && !member.first.empty() &&
+                        isExactSourceName(sourceOwner, *value);
+            break;
+        }
+
         case IrValueOpcode::MapLiteral:
             // Composite literals are first-class IR values.  The direct
             // emitter can materialize them anywhere a value is accepted,
@@ -478,6 +495,24 @@ bool supportsValue(const IrProgram &program,
             break;
         }
 
+        case IrValueOpcode::StoreProperty: {
+            if (valueContext != ValueContext::ExpressionStatementRoot ||
+                value->text != "=" || value->operands.size() != 2) {
+                break;
+            }
+            const IrValue *target = program.value(value->operands.front());
+            if (target == nullptr || target->opcode != IrValueOpcode::LoadProperty ||
+                target->text.empty() || !isExactSourceName(sourceOwner, *target) ||
+                value->span.begin.offset != target->span.begin.offset) {
+                break;
+            }
+            supported = supportsValue(program, sourceOwner, context,
+                                      value->operands[1],
+                                      ValueContext::SimpleAssignmentRhs,
+                                      visiting);
+            break;
+        }
+
         case IrValueOpcode::StoreIndex: {
             if (valueContext != ValueContext::ExpressionStatementRoot ||
                 value->text != "=" || value->operands.size() != 2) {
@@ -531,18 +566,33 @@ bool supportsValue(const IrProgram &program,
                 break;
             }
             if (value->callTarget != CallTargetKind::DynamicName &&
+                value->callTarget != CallTargetKind::ImportedFunction &&
+                value->callTarget != CallTargetKind::ClassConstructor &&
+                value->callTarget != CallTargetKind::InstanceMethod &&
                 value->callTarget != CallTargetKind::Native &&
                 value->callTarget != CallTargetKind::IndirectValue) {
                 break;
             }
             if (value->operands.empty() || value->text.empty()) break;
             const IrValue *callee = program.value(value->operands.front());
-            supported = callee != nullptr &&
-                        callee->opcode == IrValueOpcode::LoadName &&
-                        callee->text == value->text &&
-                        isExactSourceName(sourceOwner, *callee) &&
-                        methodIsAllocatedBeforeUse(context, *value) &&
-                        methodIsAllocatedBeforeUse(context, *callee);
+            if (value->callTarget == CallTargetKind::ClassConstructor) {
+                supported = value->operands.size() == 1 && callee != nullptr &&
+                            callee->opcode == IrValueOpcode::LoadName &&
+                            callee->text == value->text &&
+                            isExactSourceName(sourceOwner, *callee);
+            } else if (value->callTarget == CallTargetKind::InstanceMethod) {
+                supported = callee != nullptr &&
+                            callee->opcode == IrValueOpcode::LoadProperty &&
+                            callee->text == value->text &&
+                            isExactSourceName(sourceOwner, *callee);
+            } else {
+                supported = callee != nullptr &&
+                            callee->opcode == IrValueOpcode::LoadName &&
+                            callee->text == value->text &&
+                            isExactSourceName(sourceOwner, *callee) &&
+                            methodIsAllocatedBeforeUse(context, *value) &&
+                            methodIsAllocatedBeforeUse(context, *callee);
+            }
             for (std::size_t index = 1;
                  supported && index < value->operands.size(); ++index) {
                 supported = supportsValue(
@@ -1143,7 +1193,7 @@ struct Emitter {
         functionIdsByName.emplace(instruction.declarationName, functionId);
         functionNameIndices.emplace(instruction.symbolId, nameIndex);
         slots.emplace(instruction.declarationName, functionId);
-        hamMap::hamBytecodeMap[functionId] = {};
+        hamMap::bytecodeMap()[functionId] = {};
         hamMap::setHamNameIndex(functionId, nameIndex);
         if (functionId >= nextSlot) nextSlot = functionId + 1;
     }
@@ -1256,6 +1306,18 @@ struct Emitter {
                 output.push_back({OP_TEN_BIEN_GIA_TRI, 0, slot, 0});
                 return;
             }
+            case IrValueOpcode::LoadProperty: {
+                const auto member = splitRuntimeMemberName(value->text);
+                if (member.first.empty()) {
+                    throw std::logic_error(std::string(
+                        messages::kInternalDirectIrUnsupportedValue));
+                }
+                const int receiverSlot = slotFor(member.first);
+                const int memberIndex = StringPool::storeString(member.second);
+                output.push_back({OP_TEN_BIEN_GIA_TRI, 0, receiverSlot, 0});
+                output.push_back({OP_DOC_THUOC_TINH, 0, memberIndex, 0});
+                return;
+            }
             case IrValueOpcode::Unary: {
                 if (value->text == "-") {
                     const IrValue *operand = program.value(value->operands.front());
@@ -1318,6 +1380,25 @@ struct Emitter {
                 output.push_back({OP_GAN, 0, 0, 0});
                 return;
             }
+            case IrValueOpcode::StoreProperty: {
+                const IrValue *target = program.value(value->operands.front());
+                if (target == nullptr || target->opcode != IrValueOpcode::LoadProperty ||
+                    value->text != "=" || value->operands.size() != 2) {
+                    throw std::logic_error(std::string(
+                        messages::kInternalDirectIrInvalidStoreTarget));
+                }
+                const auto member = splitRuntimeMemberName(target->text);
+                if (member.first.empty()) {
+                    throw std::logic_error(std::string(
+                        messages::kInternalDirectIrInvalidStoreTarget));
+                }
+                const int receiverSlot = slotFor(member.first);
+                const int memberIndex = StringPool::storeString(member.second);
+                output.push_back({OP_TEN_BIEN_GIA_TRI, 0, receiverSlot, 0});
+                emitValue(value->operands[1], output);
+                output.push_back({OP_GAN_THUOC_TINH, 0, memberIndex, 0});
+                return;
+            }
             case IrValueOpcode::StoreIndex: {
                 const IrValue *target = program.value(value->operands.front());
                 if (target == nullptr || target->opcode != IrValueOpcode::Index ||
@@ -1366,6 +1447,33 @@ struct Emitter {
                 return;
             }
             case IrValueOpcode::CallDynamic: {
+                if (value->callTarget == CallTargetKind::ClassConstructor) {
+                    if (value->operands.size() != 1) {
+                        throw std::logic_error(std::string(
+                            messages::kInternalDirectIrUnsupportedValue));
+                    }
+                    const int classNameIndex = StringPool::storeString(value->text);
+                    output.push_back({OP_TAO_DOI_TUONG, 0, classNameIndex, 0});
+                    return;
+                }
+
+                if (value->callTarget == CallTargetKind::InstanceMethod) {
+                    const auto member = splitRuntimeMemberName(value->text);
+                    if (member.first.empty()) {
+                        throw std::logic_error(std::string(
+                            messages::kInternalDirectIrUnsupportedValue));
+                    }
+                    const int receiverSlot = slotFor(member.first);
+                    const int methodNameIndex = StringPool::storeString(member.second);
+                    output.push_back({OP_TEN_BIEN_GIA_TRI, 0, receiverSlot, 0});
+                    emitCallArguments(*value, output);
+                    output.push_back({OP_GOI_PHUONG_THUC,
+                                      static_cast<int>(value->operands.size() - 1),
+                                      methodNameIndex,
+                                      0});
+                    return;
+                }
+
                 std::string resolvedName = value->text;
                 if (value->explicitCall) {
                     // `gọi name(...)` resolves the callable before compiling
@@ -1436,9 +1544,9 @@ struct Emitter {
                     lambda->parameters, functionBytecode,
                     messages::kInternalDirectIrMissingLambdaDefaultValue);
 
-                emitInstruction(lambda->body, functionBytecode, false);
+                emitBlock(lambda->body, functionBytecode, false);
                 functionBytecode.push_back({OP_DONG_KHOI, 0, 0, 0});
-                hamMap::hamBytecodeMap[functionId] =
+                hamMap::bytecodeMap()[functionId] =
                     std::move(functionBytecode);
                 output.push_back({OP_BIEN_SO, functionId, 0, 0});
                 return;
@@ -1448,21 +1556,32 @@ struct Emitter {
         }
     }
 
+    void emitBlock(const IrInstruction &block,
+                   std::vector<Instruction> &output,
+                   bool blockMarkers = true) {
+        if (blockMarkers) output.push_back({OP_MO_KHOI, 0, 0, 0});
+        for (const IrInstruction &child : block.children) {
+            emitInstruction(child, output);
+        }
+        if (blockMarkers) output.push_back({OP_DONG_KHOI, 0, 0, 0});
+    }
+
     void emitInstruction(const IrInstruction &instruction,
-                         std::vector<Instruction> &output,
-                         bool blockMarkers = true) {
+                         std::vector<Instruction> &output) {
+        if (instruction.opcode == IrOpcode::Block) {
+            emitBlock(instruction, output);
+            return;
+        }
+        emitStatement(instruction, output);
+    }
+
+    void emitStatement(const IrInstruction &instruction,
+                       std::vector<Instruction> &output) {
         switch (instruction.opcode) {
             case IrOpcode::NoOp:
                 return;
             case IrOpcode::Import:
                 compileImportSpec(instruction.importSpec, nextSlot, keywordMap);
-                return;
-            case IrOpcode::Block:
-                if (blockMarkers) output.push_back({OP_MO_KHOI, 0, 0, 0});
-                for (const IrInstruction &child : instruction.children) {
-                    emitInstruction(child, output);
-                }
-                if (blockMarkers) output.push_back({OP_DONG_KHOI, 0, 0, 0});
                 return;
             case IrOpcode::Conditional: {
                 output.push_back({OP_NEU, 0, 0, 0});
@@ -1605,6 +1724,18 @@ struct Emitter {
         }
     }
 
+    std::vector<Instruction> emitFunctionBody(
+        const IrInstruction &instruction) {
+        std::vector<Instruction> functionBytecode;
+        functionBytecode.push_back({OP_MO_KHOI, 0, 0, 0});
+        emitParameterBindings(
+            instruction.parameters, functionBytecode,
+            messages::kInternalDirectIrMissingParameterDefaultValue);
+        emitBlock(instruction.children.front(), functionBytecode, false);
+        functionBytecode.push_back({OP_DONG_KHOI, 0, 0, 0});
+        return functionBytecode;
+    }
+
     void emitFunction(const IrInstruction &instruction) {
         const auto function = functionIdsBySymbol.find(instruction.symbolId);
         const auto name = functionNameIndices.find(instruction.symbolId);
@@ -1613,25 +1744,34 @@ struct Emitter {
                 messages::kInternalDirectIrFunctionNotPredeclared));
         }
 
-        std::vector<Instruction> functionBytecode;
-        functionBytecode.push_back({OP_MO_KHOI, 0, 0, 0});
-        emitParameterBindings(
-            instruction.parameters, functionBytecode,
-            messages::kInternalDirectIrMissingParameterDefaultValue);
-
-        emitInstruction(instruction.children.front(), functionBytecode, false);
-        functionBytecode.push_back({OP_DONG_KHOI, 0, 0, 0});
-        hamMap::hamBytecodeMap[function->second] = std::move(functionBytecode);
+        hamMap::bytecodeMap()[function->second] = emitFunctionBody(instruction);
         bytecode.push_back({OP_HAM, name->second, function->second, 0});
     }
 
     void emitClass(const IrInstruction &instruction) {
         ClassContextGuard classContext(instruction.declarationName);
+        const int classNameIndex = StringPool::storeString(instruction.declarationName);
+        bytecode.push_back({OP_TAO_LOP, 0, classNameIndex, 0});
         const IrInstruction &body = instruction.children.front();
         for (const IrInstruction &member : body.children) {
             if (member.opcode == IrOpcode::NoOp) continue;
             allocateFunction(member);
             emitFunction(member);
+            const auto function = functionIdsBySymbol.find(member.symbolId);
+            if (function == functionIdsBySymbol.end()) {
+                throw std::logic_error(std::string(
+                    messages::kInternalDirectIrFunctionNotPredeclared));
+            }
+            std::string methodName = member.declarationName;
+            const std::string prefix = instruction.declarationName + ".";
+            if (methodName.rfind(prefix, 0) == 0) {
+                methodName.erase(0, prefix.size());
+            }
+            const int methodNameIndex = StringPool::storeString(methodName);
+            bytecode.push_back({OP_THEM_PHUONG_THUC,
+                                classNameIndex,
+                                methodNameIndex,
+                                function->second});
         }
     }
 

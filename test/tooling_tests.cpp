@@ -120,13 +120,13 @@ void testConditionalFormIsVisibleInAstAndIrDumps() {
 
 void testStructuredImportPayloadIsVisibleInAstDump() {
     const vietvm::frontend::AstProgram program = parseSource(
-        "nhập src/tests/thư viện/math.vi như toan;\n"
+        "nhập src/tests/gói/math.vi như toan;\n"
         "nhập \"cốt lõi\";");
     const std::string dump = vietvm::tooling::dumpAst(program);
 
     expect(dump.find("import ") != std::string::npos &&
                dump.find("form=local_source_file ") != std::string::npos &&
-               dump.find("target=\"src/tests/thư viện/math.vi\"") !=
+               dump.find("target=\"src/tests/gói/math.vi\"") !=
                    std::string::npos &&
                dump.find("quoted=no semicolon=yes alias=\"toan\"") !=
                    std::string::npos,

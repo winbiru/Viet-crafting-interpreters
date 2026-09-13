@@ -22,7 +22,7 @@
 | Hồi quy tích hợp | CTest gọi run_tests.sh trên Unix và scripts/windows/run-tests.ps1 trên Windows. Các chương trình V++ và output mong đợi nằm cạnh nhau. | run_tests.sh, scripts/windows/, src/tests/ |
 | Test C++/tooling | CMake đăng ký compiler support, opcode/native constants, runtime value, VM opcode matrix, VM handler fixture, pipeline/module graph/recursive IR/direct codegen/parity, tooling và CLI dump checks. | test/CMakeLists.txt |
 | VM handler test API | `VMRuntimeFixture` cho phép dựng stack/PC/variables/call frame/control state và gọi từng handler trực tiếp; output có sink riêng cho test. | src/include/vpp/runtime/vm_fixture.h, test/vm_handler_tests.cpp |
-| Native stdlib | Runtime đã có native helpers cho chuyển kiểu/type, random, path/filesystem, environment/platform/sleep ngoài HTTP/JSON/file/config/database/collections/text. | src/runtime/native/, gói/thư viện/ |
+| Native stdlib | Runtime đã có native helpers cho chuyển kiểu/type, random, path/filesystem, environment/platform/sleep ngoài HTTP/JSON/file/config/database/collections/text. | src/runtime/native/, gói/chuẩn/ |
 | Vệ sinh build | Các thư mục build phổ biến, output test và binary đã được ignore; không dùng build artefact làm source. | .gitignore |
 
 ## Cấu trúc source hiện hành
@@ -43,7 +43,7 @@
 - Test: chương trình hồi quy V++ ở src/tests/*.vi, output ở src/tests/expected/;
   C++ unit test ở test/*.cpp. src/tests/.tmp/ chỉ là workspace tạm được tạo khi
   chạy test.
-- Package/thư viện chuẩn, template và ví dụ: gói/, templates/ và examples/.
+- Package/gói chuẩn, template và ví dụ: gói/, templates/ và examples/.
 
 Các header trong src/include/vpp/ là hướng tổ chức API theo module; chúng chưa được
 cam kết là C/C++ embedding API ổn định.
@@ -61,19 +61,25 @@ Unix bằng cách đặt VPP_EXEC trỏ đến binary rồi gọi run_tests.sh. 
 CTest tự gọi PowerShell 7 và scripts/windows/run-tests.ps1 khi pwsh có mặt.
 
 Baseline local ngày 13/09/2026: **15/15 CTest pass**, integration regression
-**54/54**, direct-IR parity **61/61**.
+**61/61**, direct-IR parity **70/70**.
 
 ## Việc còn lại theo thứ tự ưu tiên
 
-1. Dời `StringPool` và function registries khỏi mutable global state, thêm regression
-   cho concurrent compilation trước khi tuyên bố compiler re-entrant.
-2. Chốt chính sách kiểu dữ liệu (dynamic, static hoặc gradual) trước khi thêm type
+1. Module Semantics Phase 1 và runtime lifecycle đã có: identity/export index, alias
+   namespace, semantic `ImportedFunction`, runtime `ModuleTable` và initialization
+   dependency-first đúng một lần. Object model đã chạy end-to-end zero-arg construction,
+   field read/write và bound method dispatch; bước tiếp theo là implicit receiver,
+   constructor có tham số, inheritance syntax và instance visibility. Explicit
+   export/re-export và richer cycle diagnostic vẫn tiếp tục trong module semantics.
+2. Sau khi hoàn tất phần object semantics còn lại: nâng GC MVP thành tracing GC và
+   bổ sung stack trace/debugger hook trên call frame + source span ổn định.
+3. Tách package/bare-module lookup thành package resolver riêng trước khi thêm
+   version/dependency/lockfile.
+4. Chốt chính sách kiểu dữ liệu (dynamic, static hoặc gradual) trước khi thêm type
    checking/Typed IR.
-3. Chốt ABI/versioning `.vbc`, rồi mới viết serializer/deserializer,
+5. Chốt ABI/versioning `.vbc`, rồi mới viết serializer/deserializer,
    assembler/disassembler và verifier tương ứng.
-4. Thiết kế C API/C++ embedding API dựa trên lifecycle compiler/runtime đã tách state.
-5. Nâng MVP GC/JIT thành thiết kế có profiling và regression cross-platform; benchmark
-   baseline hiện đã có để đo trước/sau tối ưu.
+6. Thiết kế C API/C++ embedding API dựa trên lifecycle compiler/runtime đã tách state.
 
 Xem chi tiết và trạng thái từng nhóm ở:
 

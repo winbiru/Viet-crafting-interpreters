@@ -91,6 +91,8 @@ std::string runtimeTypeName(const StackValue &value) {
     if (std::holds_alternative<MapHandle>(value)) return "từ điển";
     if (std::holds_alternative<ListHandle>(value)) return "danh sách";
     if (std::holds_alternative<TupleHandle>(value)) return "tuple";
+    if (std::holds_alternative<ClassHandle>(value)) return "lớp";
+    if (std::holds_alternative<InstanceHandle>(value)) return "đối tượng";
     return "không rõ";
 }
 

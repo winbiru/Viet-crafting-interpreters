@@ -1,2 +1,0 @@
-// Gói khởi động đầy đủ. Ưu tiên import gói hẹp hơn khi phù hợp.
-nhập "gói/thư viện/khởi động/ứng dụng.vi";

@@ -1,5 +1,7 @@
 #include "vpp/compiler/module_graph.h"
 #include "vpp/core/message_constants.h"
+#include "frontend/lexer.h"
+#include "vpp/frontend/parser.h"
 
 #include <chrono>
 #include <filesystem>
@@ -19,6 +21,8 @@ using vietvm::compiler::LocalModuleEdgeAction;
 using vietvm::compiler::LocalModuleGraph;
 using vietvm::compiler::LocalModuleGraphBuilder;
 using vietvm::compiler::LocalModuleResolver;
+using vietvm::compiler::ModuleInitializationState;
+using vietvm::compiler::ModuleInitializationTracker;
 using vietvm::frontend::AstImportSpec;
 
 int failures = 0;
@@ -255,6 +259,101 @@ void testScannerIsRequired() {
     expect(rejected, "graph construction rejects an empty import scanner");
 }
 
+void testSemanticIndexExportsNamespacesAndLifecycle() {
+    TemporaryTree tree;
+    const fs::path moduleA = tree.root() / "a.vi";
+    const fs::path moduleB = tree.root() / "b.vi";
+    writeFile(
+        moduleA,
+        u8"nhập b.vi như bee;\n"
+        u8"hàm công khai cộng(a, b) { trả về a + b; }\n"
+        u8"hàm riêng tư bí mật() { trả về 0; }\n"
+        u8"lớp công khai MáyTính { hàm công khai id() { trả về 1; } }\n");
+    writeFile(moduleB, u8"hàm nhân(a, b) { trả về a * b; }\n");
+
+    const auto index = vietvm::compiler::buildLocalModuleSemanticIndex(
+        LocalModuleResolver(tree.root()),
+        "entry://main.vi",
+        {importSpec("a.vi", "toan"), importSpec("b.vi")});
+
+    expect(index.modules.size() == 2,
+           "semantic index records each imported module once");
+    const std::string aIdentity = fs::absolute(moduleA).lexically_normal().u8string();
+    const std::string bIdentity = fs::absolute(moduleB).lexically_normal().u8string();
+    const auto *a = index.module(aIdentity);
+    const auto *b = index.module(bIdentity);
+    expect(a != nullptr && b != nullptr,
+           "semantic index can look up modules by stable identity");
+    expect(index.exportedSymbol(aIdentity, u8"cộng") != nullptr &&
+               index.exportedSymbol(aIdentity, u8"MáyTính") != nullptr &&
+               index.exportedSymbol(aIdentity, u8"bí mật") == nullptr,
+           "module export surface keeps public/default declarations and hides private declarations");
+    expect(index.exportedSymbol(bIdentity, u8"nhân") != nullptr,
+           "unspecified top-level visibility remains exported for compatibility");
+
+    const auto rootEnvironment = index.semanticEnvironmentFor("entry://main.vi");
+    bool sawQualifiedAdd = false;
+    bool sawQualifiedClass = false;
+    bool sawFlatMultiply = false;
+    bool leakedPrivate = false;
+    for (const auto &symbol : rootEnvironment.importedSymbols) {
+        sawQualifiedAdd = sawQualifiedAdd || symbol.name == u8"toan.cộng";
+        sawQualifiedClass = sawQualifiedClass || symbol.name == u8"toan.MáyTính";
+        sawFlatMultiply = sawFlatMultiply || symbol.name == u8"nhân";
+        leakedPrivate = leakedPrivate || symbol.name.find(u8"bí mật") != std::string::npos;
+    }
+    expect(sawQualifiedAdd && sawQualifiedClass && sawFlatMultiply && !leakedPrivate,
+           "direct import environment applies aliases while preserving flat unaliased imports");
+
+    const auto aEnvironment = index.semanticEnvironmentFor(aIdentity);
+    expect(aEnvironment.importedSymbols.size() == 1 &&
+               aEnvironment.importedSymbols.front().name == u8"bee.nhân",
+           "nested importer receives only its own direct namespace imports");
+
+    const std::string importerSource =
+        u8"hàm main() { in toan.cộng(1, 2); in nhân(2, 3); }";
+    const auto importerProgram = vietvm::frontend::parseTokens(
+        vietvm::compiler::postProcessTokensWithSpans(
+            vietvm::compiler::tokenizeWithSpans(importerSource)));
+    const auto semantic = vietvm::compiler::analyzeSemantics(
+        importerProgram, rootEnvironment,
+        vietvm::compiler::ResolutionPolicy::PreserveLegacy);
+    bool resolvedQualified = false;
+    bool resolvedFlat = false;
+    for (const auto &reference : semantic.references) {
+        if (reference.name == u8"toan.cộng") {
+            resolvedQualified = !reference.dynamic && reference.resolvedSymbolId >= 0;
+        }
+        if (reference.name == u8"nhân") {
+            resolvedFlat = !reference.dynamic && reference.resolvedSymbolId >= 0;
+        }
+    }
+    expect(resolvedQualified && resolvedFlat,
+           "semantic analysis consumes module-index exports as resolved imported symbols");
+
+    ModuleInitializationTracker lifecycle(index);
+    expect(lifecycle.state(aIdentity) == ModuleInitializationState::Uninitialized,
+           "module lifecycle starts uninitialized");
+    expect(lifecycle.begin(aIdentity) &&
+               lifecycle.state(aIdentity) == ModuleInitializationState::Initializing,
+           "module lifecycle enters initializing exactly once");
+    expect(!lifecycle.begin(aIdentity),
+           "re-entrant/cyclic initialization does not begin the same module twice");
+    expect(lifecycle.complete(aIdentity) &&
+               lifecycle.state(aIdentity) == ModuleInitializationState::Initialized &&
+               !lifecycle.complete(aIdentity),
+           "successful initialization is terminal and idempotence-safe");
+    expect(lifecycle.begin(bIdentity) && lifecycle.fail(bIdentity) &&
+               lifecycle.state(bIdentity) == ModuleInitializationState::Failed &&
+               !lifecycle.begin(bIdentity),
+           "failed initialization is recorded and not silently retried");
+    expect(!lifecycle.state("missing://module").has_value(),
+           "lifecycle tracker rejects unknown module identities");
+    expect(std::string(vietvm::compiler::moduleInitializationStateName(
+               ModuleInitializationState::Initialized)) == "initialized",
+           "module lifecycle state has stable tooling text");
+}
+
 } // namespace
 
 int main() {
@@ -262,6 +361,7 @@ int main() {
     testOrderedGraphActionsAndMetadata();
     testReadAndScanFailureCanRetry();
     testScannerIsRequired();
+    testSemanticIndexExportsNamespacesAndLifecycle();
 
     if (failures != 0) {
         std::cerr << failures << " module graph test(s) failed\n";

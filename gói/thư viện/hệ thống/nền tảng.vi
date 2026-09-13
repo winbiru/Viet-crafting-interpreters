@@ -1,9 +1,0 @@
-// Module: thư viện.hệ thống.nền tảng
-
-hàm tên nền tảng() {
-    ném "stdlib: tên nền tảng native hook không khả dụng";
-};
-
-hàm ngủ mili giây(thời lượng) {
-    ném "stdlib: ngủ mili giây native hook không khả dụng";
-};

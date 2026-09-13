@@ -4,10 +4,12 @@
 #include <vector>
 
 #include "common/vm_native_helpers.h"
+#include "common/vm_native_json_helpers.h"
 #include "common/vm_utils.h"
 #include "vpp/bytecode/literal_wire.h"
 #include "vpp/core/text.h"
 #include "vpp/runtime/collection.h"
+#include "vpp/runtime/object.h"
 
 namespace {
 
@@ -132,6 +134,54 @@ void testSharedNativeValidation() {
            "native argument count validator retains the standard diagnostic");
 }
 
+void testRuntimeObjectModel() {
+    using namespace vietvm::runtime;
+
+    const ClassHandle base = createClass("Base");
+    const ClassHandle child = createClass("Child", base);
+    expect(defineMethod(base, "speak", 11),
+           "runtime class accepts a method binding");
+    expect(defineMethod(child, "run", 12),
+           "runtime subclass accepts its own method binding");
+
+    const auto inherited = lookupMethod(child, "speak");
+    expect(inherited.has_value() && *inherited == 11,
+           "method lookup walks the superclass chain");
+    expect(isSubclassOf(child, base) && !isSubclassOf(base, child),
+           "runtime class hierarchy reports subclass relationships");
+
+    expect(defineMethod(child, "speak", 13),
+           "runtime subclass can override an inherited method");
+    const auto overridden = lookupMethod(child, "speak");
+    expect(overridden.has_value() && *overridden == 13,
+           "method lookup prefers the nearest override");
+
+    const InstanceHandle first = createInstance(child);
+    const InstanceHandle second = createInstance(child);
+    expect(first != nullptr && setInstanceField(first, "answer", make_int_value(42)),
+           "runtime instance stores a field value");
+    const auto answer = getInstanceField(first, "answer");
+    expect(answer.has_value() && sameStackValue(*answer, make_int_value(42)) &&
+               hasInstanceField(first, "answer") &&
+               !hasInstanceField(first, "missing"),
+           "runtime instance field lookup preserves StackValue semantics");
+
+    const StackValue firstValue = make_instance_value(first);
+    const StackValue secondValue = make_instance_value(second);
+    expect(sameStackValue(firstValue, firstValue) &&
+               !sameStackValue(firstValue, secondValue),
+           "runtime instances use identity equality");
+    expect(sv_to_string(make_class_value(child)) == "<class Child>" &&
+               sv_to_string(firstValue) == "<instance Child>",
+           "runtime class and instance values have stable debug rendering");
+
+    std::string jsonOutput;
+    std::string jsonError;
+    expect(!vietvm::helpers::stringifyJson(firstValue, jsonOutput, jsonError) &&
+               !jsonError.empty(),
+           "JSON conversion rejects runtime instances without treating them as maps");
+}
+
 void testSharedTextAndWireHelpers() {
     const std::vector<std::string> words = vietvm::core::splitAsciiWords("  một\thai\r\nba  ");
     expect(vietvm::core::joinWithSpaces(words) == "một hai ba",
@@ -189,6 +239,7 @@ int main() {
     try {
         testSharedStackValueSemantics();
         testSharedNativeValidation();
+        testRuntimeObjectModel();
         testSharedTextAndWireHelpers();
         testSharedOperatorEvaluation();
     } catch (const std::exception &error) {

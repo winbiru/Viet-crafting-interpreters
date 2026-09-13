@@ -120,11 +120,11 @@ CLI chính hiện có các lệnh hỗ trợ phát triển:
 ./VPP nơi
 ./VPP thống kê
 ./VPP chạy example.vi
-./VPP cài đặt "./gói/thư viện"
+./VPP cài đặt "./gói/lõi"
 ./VPP caidat ./duong-dan/goi.vi ten-goi
 ./VPP xóa ten-goi
-./VPP thông tin "thư viện"
-./VPP kiểm tra "thư viện"
+./VPP thông tin "lõi"
+./VPP kiểm tra "lõi"
 
 ./bin/vpp-cli --giải-mã example.vi
 ./bin/vpp-cli --dump-ast example.vi
@@ -136,11 +136,11 @@ CLI chính hiện có các lệnh hỗ trợ phát triển:
 ./bin/vpp-cli --lsp
 ./bin/vpp-cli khởi tạo demo
 ./bin/vpp-cli khởi tạo backend my-api
-./bin/vpp-cli cài đặt "./gói/thư viện"
+./bin/vpp-cli cài đặt "./gói/lõi"
 ./bin/vpp-cli danh sách
 ./bin/vpp-cli xóa mypkg
-./bin/vpp-cli thông tin "thư viện"
-./bin/vpp-cli kiểm tra "thư viện"
+./bin/vpp-cli thông tin "lõi"
+./bin/vpp-cli kiểm tra "lõi"
 ./bin/vpp-cli thống kê
 ./bin/vpp-cli gói khởi tạo demo
 ./bin/vpp-cli gói thêm lib.vi mypkg
@@ -166,35 +166,37 @@ Windows có thể dùng trực tiếp:
 VPP.cmd caidat duong-dan\goi.vi ten-goi
 ```
 
-Thư viện chuẩn là một package duy nhất tại `gói/thư viện`. Program mới nên
-import module tiếng Việt nhỏ nhất cần dùng. Khi import theo tên module, tên có
+Thư viện chuẩn là tập các package tiếng Việt nằm trực tiếp dưới `gói/`.
+`gói/chuẩn/main.vi` chỉ là entrypoint tổng hợp để nhập toàn bộ gói chuẩn.
+Program mới nên import package nhỏ nhất cần dùng. Khi import theo tên package, tên có
 khoảng trắng có thể để trần hoặc đặt trong dấu nháy; đường dẫn file có khoảng
 trắng luôn phải đặt trong dấu nháy:
 
 ```vi
-nhập cốt lõi;
-nhập "vào ra";
+nhập lõi;
+nhập "nhập xuất";
 nhập mạng;
 nhập "hệ thống";
 nhập dữ liệu;
 nhập "ứng dụng";
+nhập dựng;
 nhập "kiểm thử";
 ```
 
-- `gói/thư viện/cốt lõi`: toán học, chuỗi UTF-8 cơ bản, collections, chuyển kiểu, random, luận lý và validation.
-- `gói/thư viện/vào ra`: tệp, đường dẫn/thư mục, cấu hình, thời gian và logging.
-- `gói/thư viện/hệ thống`: biến môi trường, nhận diện nền tảng và sleep mức mili giây.
-- `gói/thư viện/mạng`: HTTP client/server, REST helpers và JSON parse/serialize map/list/scalar.
-- `gói/thư viện/dữ liệu`: phân trang và database adapter.
-- `gói/thư viện/ứng dụng`: chỉ lifecycle ứng dụng chung; không tự kéo web, HTTP hay data.
-- `gói/thư viện/khởi động`: facade tiện dụng cho web, dữ liệu và ứng dụng full stack.
-- `gói/thư viện/kiểm thử`: khẳng định cơ bản trong mã V++ (`khẳng định đúng`, `khẳng định sai`, `khẳng định bằng`, `khẳng định khác`).
+- `gói/lõi`: toán học, chuỗi UTF-8 cơ bản, collections, chuyển kiểu, random, luận lý và validation.
+- `gói/nhập xuất`: tệp, đường dẫn/thư mục, cấu hình, thời gian và logging.
+- `gói/hệ thống`: biến môi trường, nhận diện nền tảng và sleep mức mili giây.
+- `gói/mạng`: HTTP client/server, REST helpers và JSON parse/serialize map/list/scalar.
+- `gói/dữ liệu`: phân trang và database adapter.
+- `gói/ứng dụng`: chỉ lifecycle ứng dụng chung; không tự kéo web, HTTP hay data.
+- `gói/dựng`: facade tiện dụng cho web, dữ liệu và ứng dụng full stack.
+- `gói/kiểm thử`: khẳng định cơ bản trong mã V++ (`khẳng định đúng`, `khẳng định sai`, `khẳng định bằng`, `khẳng định khác`).
 
 Một số API chuẩn hiện được nối trực tiếp vào native runtime:
 
 ```vi
-nhập cốt lõi;
-nhập "vào ra";
+nhập lõi;
+nhập "nhập xuất";
 nhập "hệ thống";
 
 in thành chuỗi(42);
@@ -206,23 +208,23 @@ in đọc biến môi trường("HOME", "");
 in tên nền tảng();
 ```
 
-Nhóm `cốt lõi` có chuyển kiểu/quan sát loại và random; `vào ra` có path, kiểm tra
+Nhóm `lõi` có chuyển kiểu/quan sát loại và random; `nhập xuất` có path, kiểm tra
 tệp/thư mục, tạo/liệt kê/xóa thư mục; `hệ thống` có biến môi trường, nhận diện nền
-tảng và sleep mili giây. Các hàm `.vi` tương ứng là public surface của thư viện,
+tảng và sleep mili giây. Các hàm `.vi` tương ứng là public surface của gói chuẩn,
 còn implementation native nằm trong `src/runtime/native/`.
 
-`gói/thư viện/main.vi` là entrypoint đầy đủ. Mỗi module có `main.vi` tại
-`gói/thư viện/<tên tiếng Việt>/main.vi`. Có thể import theo tên module như
+`gói/chuẩn/main.vi` là entrypoint đầy đủ. Mỗi package chuẩn có `main.vi` tại
+`gói/<tên tiếng Việt>/main.vi`. Có thể import theo tên package như
 trên, hoặc dùng đường dẫn tường minh khi cần module con, ví dụ
-`nhập "gói/thư viện/mạng/kiểm thử/api.vi";`. Các bản cài từ release đặt thư viện
+`nhập "gói/mạng/kiểm thử/api.vi";`. Các bản cài từ release đặt các gói chuẩn
 chuẩn cạnh binary và installer tự cấu hình `VPP_HOME`, vì vậy các import này
 vẫn hoạt động ngoài repository.
 
 `kiểm thử` và `mạng/kiểm thử/api.vi` là module tùy chọn, không được import
 tự động bởi `main.vi`; mã production không bị kéo theo API kiểm thử.
 
-Các module trên được bundle cùng V++; package manager xem `thư viện` là một
-package và chưa tự resolve dependency/version cho module con.
+Các package trên được bundle cùng V++; package manager nhìn thấy trực tiếp
+`lõi`, `mạng`, `dữ liệu`... và hiện chưa tự resolve dependency/version giữa chúng.
 
 HTTP server native hỗ trợ Linux, macOS và Windows.
 
@@ -242,27 +244,28 @@ curl http://127.0.0.1:8080/health
 
 Endpoint mẫu trả JSON boolean `true`.
 
-### Module khởi động
+### Gói dựng
 
-Các entrypoint khởi động canonical có thể import bằng đường dẫn:
+Các entrypoint dựng canonical có thể import bằng đường dẫn:
 
 ```vi
-nhập "gói/thư viện/khởi động/web.vi";
-nhập "gói/thư viện/khởi động/dữ liệu.vi";
-nhập "gói/thư viện/khởi động/ứng dụng.vi";
+nhập "gói/dựng/web.vi";
+nhập "gói/dựng/dữ liệu.vi";
+nhập "gói/dựng/ứng dụng.vi";
 ```
 
-- `web`: cốt lõi + vào ra + mạng.
-- `dữ liệu`: cốt lõi + vào ra + dữ liệu.
-- `ứng dụng`: cốt lõi + vào ra + mạng + dữ liệu + lifecycle.
+- `web`: lõi + nhập xuất + mạng.
+- `dữ liệu`: lõi + nhập xuất + dữ liệu.
+- `ứng dụng`: lõi + nhập xuất + mạng + dữ liệu + lifecycle.
 
-Vì vậy hãy dùng `gói/thư viện/ứng dụng` khi chỉ cần lifecycle, và dùng
-`gói/thư viện/khởi động/ứng dụng.vi` khi chủ ý cần full stack. Test request builders ở
-`gói/thư viện/mạng/kiểm thử/api.vi` không được import tự động bởi cả hai entrypoint.
+Vì vậy hãy dùng `gói/ứng dụng` khi chỉ cần lifecycle, và dùng
+`gói/dựng/ứng dụng.vi` khi chủ ý cần full stack. Test request builders ở
+`gói/mạng/kiểm thử/api.vi` không được import tự động bởi cả hai entrypoint.
 
-Ba tên starter cũ `khởi động dữ liệu.vi`, `khởi động web.vi` và `khởi động ứng dụng.vi`
-được giữ làm shim nhỏ trong cùng cây module; chúng không tạo thêm package hay
-copy implementation.
+Các đường dẫn `khởi động/...` cũ được resolver chuyển sang `dựng/...`, nên mã cũ
+vẫn chạy mà không cần giữ file shim trong cây package canonical. Adapter API mẫu
+nằm tại `gói/ứng dụng/cầu nối/api.vi`; đường dẫn `tương thích/api.vi` cũ cũng được
+redirect tương tự.
 
 ## Cấu Trúc Chính
 
@@ -331,5 +334,5 @@ Các header pipeline được quy hoạch dưới
 - `docs/language-comparison-en.md`
 
 Trạng thái roadmap và baseline kiểm thử gần nhất nằm ở `plans/progress.md`. Baseline
-local ngày 13/09/2026: 15/15 CTest pass, regression runtime 54/54 và direct-IR parity
-61/61.
+local ngày 13/09/2026: 15/15 CTest pass, regression runtime 61/61 và direct-IR parity
+70/70.

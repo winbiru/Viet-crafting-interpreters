@@ -235,10 +235,10 @@ Scaffold project:
 Quản lý package:
 
 ```bash
-./build/bin/vpp-cli cài đặt "./gói/thư viện"
+./build/bin/vpp-cli cài đặt "./gói/chuẩn"
 ./build/bin/vpp-cli danh sách
-./build/bin/vpp-cli thông tin "thư viện"
-./build/bin/vpp-cli kiểm tra "thư viện"
+./build/bin/vpp-cli thông tin "chuẩn"
+./build/bin/vpp-cli kiểm tra "chuẩn"
 ./build/bin/vpp-cli thống kê
 ./build/bin/vpp-cli xóa mypkg
 ```

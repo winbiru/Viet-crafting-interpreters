@@ -60,6 +60,15 @@ inline constexpr std::string_view kVmUncaughtException = "Lỗi không bắt đ�
 inline constexpr std::string_view kVmParamArgIndexOutOfRange = "Cảnh báo: OP_PARAM có chỉ số đối số ngoài phạm vi, dùng mặc định 0";
 inline constexpr std::string_view kVmOutputPrefix = "[IN] ";
 inline constexpr std::string_view kVmLogPrefix = "[VM] ";
+inline constexpr std::string_view kVmModuleInitializationInvalidState = "Lỗi: trạng thái khởi tạo mô-đun không hợp lệ: {0}";
+inline constexpr std::string_view kVmModuleInitializationFailed = "Lỗi: khởi tạo mô-đun thất bại: {0}";
+inline constexpr std::string_view kVmObjectInvalidClassNameIndex = "Lỗi: chỉ số tên lớp runtime không hợp lệ";
+inline constexpr std::string_view kVmObjectInvalidMemberNameIndex = "Lỗi: chỉ số tên thành viên runtime không hợp lệ";
+inline constexpr std::string_view kVmObjectClassNotFound = "Lỗi: lớp runtime không tồn tại: {0}";
+inline constexpr std::string_view kVmObjectExpectedInstance = "Lỗi: thao tác thuộc tính/phương thức yêu cầu một đối tượng";
+inline constexpr std::string_view kVmObjectPropertyNotFound = "Lỗi: thuộc tính không tồn tại: {0}";
+inline constexpr std::string_view kVmObjectMethodNotFound = "Lỗi: phương thức không tồn tại: {0}";
+inline constexpr std::string_view kVmObjectNotEnoughOperands = "Lỗi: không đủ toán hạng cho thao tác đối tượng";
 
 // Native-function invocation and file/time diagnostics.
 inline constexpr std::string_view kNativeArgumentCount = "{0} yêu cầu {1} tham số";
