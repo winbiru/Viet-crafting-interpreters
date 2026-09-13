@@ -10,9 +10,9 @@
 | Giai đoạn | Hoàn tất | Còn lại | Tỷ lệ |
 | --- | ---: | ---: | ---: |
 | Ngắn hạn | 14/15 | 1 | 93% |
-| Trung hạn | 14/18 | 4 | 78% |
-| Dài hạn | 10/23 | 13 | 43% |
-| **Tổng** | **38/56** | **18** | **68%** |
+| Trung hạn | 15/18 | 3 | 83% |
+| Dài hạn | 11/23 | 12 | 48% |
+| **Tổng** | **40/56** | **16** | **71%** |
 
 ## Đã xác nhận hoàn thành
 
@@ -41,14 +41,14 @@
 - [x] VM opcode matrix hiện khóa arithmetic, logic/comparison boundary, stack,
   branch, call/return, native call, default parameter, switch/default, throw/catch,
   uncaught error và các lỗi boundary chính.
+- [x] `VMRuntimeFixture` + `vpp-vm-handler-unit` đã tạo test boundary nội bộ cho
+  stack/PC/variables/call frame/control stacks và output sink, cho phép test handler
+  trực tiếp mà không phải chạy toàn bộ dispatch/stdout.
 - [x] Quality baseline đã có coverage gate 45%, `.clang-tidy` versioned và benchmark
   lặp lại được cho VM dispatch, lexer/compiler và native HTTP helpers.
 
 ## Đang thực hiện
 
-- [ ] **VM handler test API:** `VM::run()` đã tách xong theo nhóm handler, nhưng state
-  nội bộ vẫn chưa có test fixture/API nhỏ để dựng và kiểm tra handler trực tiếp mà
-  không đi qua toàn bộ dispatch/stdout.
 - [ ] **Compiler state:** đã có `CompilationContext` cho top-level compile theo cơ chế
   reset + snapshot + cleanup, và CLI `runSnippet()` đã dùng context này. Nội bộ
   `StringPool`/`hamMap` vẫn là mutable global state nên compiler chưa re-entrant.
@@ -65,9 +65,9 @@
 - [x] Xác nhận tính độc lập của `vpp-pipeline-legacy-parity`: corpus 61 chương trình
   chạy thuận và đảo thứ tự trong cùng process đều khớp snapshot; chạy riêng parity
   và bộ CTest không gồm integration đều qua.
-- [ ] Handler VM vẫn thao tác trực tiếp vào `stack`, `variables`, `callStack` và
-  control stacks của instance; bước tiếp theo là tạo internal state fixture/API để
-  unit test handler độc lập trước khi tối ưu dispatch sâu hơn.
+- [x] Handler VM vẫn thao tác trên state của instance, nhưng `VMRuntimeFixture` đã tạo
+  ranh giới test nội bộ để dựng/quan sát state và gọi handler độc lập. Việc tối ưu
+  dispatch sâu hơn giờ có baseline handler-level để bảo vệ semantics.
 - [ ] Global compiler registries vẫn chặn mục tiêu re-entrant/concurrent compilation.
 
 ## Kiểm tra tại thời điểm cập nhật
@@ -75,13 +75,13 @@
 ```text
 VM opcode smoke (build trực tiếp bằng C++17): passed
 Integration regression: 54/54 passed
-CTest baseline gần nhất: 14/14 passed
+CTest baseline gần nhất: 15/15 passed
 Pipeline parity baseline gần nhất: 61 chương trình, direct IR 61 chương trình
 Coverage cross-check: 75.77% line coverage (8,884/11,725), gate 45%
 Benchmark baseline: VM dispatch + lexer + compiler pipeline + native HTTP helpers
 Short-term: 14/15
-Medium-term: 14/18
-Long-term: 10/23
+Medium-term: 15/18
+Long-term: 11/23
 ```
 
 ## Ưu tiên tiếp theo
@@ -95,6 +95,7 @@ Long-term: 10/23
 5. [x] Sau khi test architecture ổn định, thêm coverage + clang-tidy + benchmark baseline.
 6. [x] Tách nốt variable/index/switch/block/exception khỏi `VM::run()` và mở rộng
    opcode matrix; full regression sau refactor vẫn 54/54.
-7. [ ] Tạo internal VM state fixture/API để test handler trực tiếp mà không phụ thuộc stdout.
+7. [x] Tạo internal VM state fixture/API và output sink để test handler trực tiếp
+   không phụ thuộc stdout; khóa bằng `vpp-vm-handler-unit`.
 8. [ ] Tiếp tục dời `StringPool`/function registry khỏi global compiler state và thêm
    concurrent-compilation regression trước khi tuyên bố compiler re-entrant.

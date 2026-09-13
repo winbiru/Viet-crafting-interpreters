@@ -7,10 +7,8 @@ V++ là một bộ compiler + virtual machine thử nghiệm cho một ngôn ng�
 ### Linux/macOS
 
 ```bash
-mkdir -p cmake-build-debug
-cd cmake-build-debug
-cmake ..
-make -j
+cmake -S . -B build
+cmake --build build --parallel
 ```
 
 Hoặc:
@@ -30,14 +28,17 @@ Lưu ý: không build bằng `c++ src/cli/main.cpp -o main` vì thiếu toàn b�
 Chạy một chương trình:
 
 ```bash
-./bin/vpp-cli src/tests/program.vi
+./build/bin/vpp-cli src/tests/program.vi
 ```
 
 Chạy toàn bộ test:
 
 ```bash
-./run_tests.sh
+ctest --test-dir build --output-on-failure --no-tests=error
 ```
+
+Nếu dùng binary tạo bởi `./scripts/build-vpp-cli.sh`, có thể chạy regression trực
+tiếp bằng `VPP_EXEC=./bin/vpp-cli ./run_tests.sh`.
 
 ## Cài Nhanh Không Cần Clone
 
@@ -189,6 +190,27 @@ nhập "kiểm thử";
 - `gói/thư viện/khởi động`: facade tiện dụng cho web, dữ liệu và ứng dụng full stack.
 - `gói/thư viện/kiểm thử`: khẳng định cơ bản trong mã V++ (`khẳng định đúng`, `khẳng định sai`, `khẳng định bằng`, `khẳng định khác`).
 
+Một số API chuẩn hiện được nối trực tiếp vào native runtime:
+
+```vi
+nhập cốt lõi;
+nhập "vào ra";
+nhập "hệ thống";
+
+in thành chuỗi(42);
+in loại của(42);
+in ngẫu nhiên nguyên(1, 10);
+in đường dẫn nối("tmp", "data.txt");
+in đường dẫn tồn tại("tmp/data.txt");
+in đọc biến môi trường("HOME", "");
+in tên nền tảng();
+```
+
+Nhóm `cốt lõi` có chuyển kiểu/quan sát loại và random; `vào ra` có path, kiểm tra
+tệp/thư mục, tạo/liệt kê/xóa thư mục; `hệ thống` có biến môi trường, nhận diện nền
+tảng và sleep mili giây. Các hàm `.vi` tương ứng là public surface của thư viện,
+còn implementation native nằm trong `src/runtime/native/`.
+
 `gói/thư viện/main.vi` là entrypoint đầy đủ. Mỗi module có `main.vi` tại
 `gói/thư viện/<tên tiếng Việt>/main.vi`. Có thể import theo tên module như
 trên, hoặc dùng đường dẫn tường minh khi cần module con, ví dụ
@@ -257,6 +279,10 @@ copy implementation.
 - `test/`: source C++ cho CTest unit và CLI tooling checks
 - `docs/`: bytecode, grammar, kiến trúc
 
+Runtime có fixture nội bộ `src/include/vpp/runtime/vm_fixture.h` dành cho unit test
+từng opcode handler mà không cần chạy toàn bộ dispatch hoặc phụ thuộc stdout. Đây là
+test API nội bộ, không phải embedding API công khai.
+
 ## Pipeline Biên Dịch
 
 V++ tổ chức quá trình biên dịch theo các bước tăng dần:
@@ -294,8 +320,16 @@ Các header pipeline được quy hoạch dưới
 
 ## Tài Liệu
 
+- `PROJECT_COMMANDS.md`
+- `README-updates.md`
 - `docs/architecture.md`
 - `docs/bytecode.md`
+- `docs/diagnostic-codes.md`
+- `docs/quality.md`
 - `docs/grammar.bnf`
 - `docs/language-comparison.md`
 - `docs/language-comparison-en.md`
+
+Trạng thái roadmap và baseline kiểm thử gần nhất nằm ở `plans/progress.md`. Baseline
+local ngày 13/09/2026: 15/15 CTest pass, regression runtime 54/54 và direct-IR parity
+61/61.

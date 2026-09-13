@@ -21,8 +21,9 @@
      `VM::run()` hiện chỉ giữ lifecycle/GC và routing opcode; logic call, value,
      arithmetic, literal, index, variable/call-frame, switch/block, loop-control,
      exception và branch đã nằm trong các handler riêng.
-   - [ ] Đưa state cần thiết vào API nội bộ có thể dựng trong test; không dựa vào
-     stdout/global state để kiểm thử từng handler.
+   - [x] Đưa state cần thiết vào API nội bộ có thể dựng trong test. `VMRuntimeFixture`
+     hiện cho phép dựng stack/PC/variables/call frame/control state, gọi handler trực
+     tiếp và cấu hình output sink; `vpp-vm-handler-unit` khóa các nhóm handler chính.
    - [x] Giữ test tích hợp trước/sau mỗi nhánh refactor. Baseline trước refactor và
      lần chạy sau khi tách toàn bộ nhóm handler đều đạt 54/54 regression.
 

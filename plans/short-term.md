@@ -1,6 +1,6 @@
 # Kế hoạch ngắn hạn (1–2 tuần)
 
-> Cập nhật: 12/09/2026
+> Cập nhật: 13/09/2026
 > Mục tiêu là củng cố baseline build/test và tài liệu. Các mục đánh dấu hoàn tất chỉ
 > xác nhận source hoặc workflow đã có trong repo, không thay cho kết quả CI của một
 > commit cụ thể.
@@ -14,8 +14,9 @@
   sanitizer, Windows chạy full regression Release.
 - [x] Release workflow đã có riêng; matrix đóng gói Ubuntu, macOS và Windows nằm ở
   .github/workflows/release-binaries.yml.
-- [x] CTest đã có ba baseline C++ unit target trong test/: compiler support
-  (StringPool, symbolTable, hamMap), canonical opcode/native constants và VM opcode smoke.
+- [x] CTest hiện có compiler/runtime/pipeline/tooling unit targets, VM opcode matrix,
+  VM handler fixture, parity gate và hai CLI dump checks; integration suite được đăng
+  ký riêng qua CMake.
 - [x] Hồi quy end-to-end đã có run_tests.sh trên Unix, runner PowerShell trên Windows,
   cùng các file expected trong src/tests/expected/.
 
@@ -53,11 +54,10 @@
 
 4. Kiểm tra CI thực tế
 
-   - [ ] Khi thay đổi runner hoặc native adapter, xác nhận cả job Ubuntu và Windows
-     trên GitHub Actions; macOS hiện được build trong workflow release, chưa phải job
-     regression thường trực. Local baseline ngày 12/09/2026 đã qua 14/14 CTest
-     (integration 54/54, parity 61/61); cần commit/push bộ thay đổi hiện tại để có
-     bằng chứng Actions tương ứng.
+   - [ ] Khi thay đổi runner hoặc native adapter, xác nhận các job Ubuntu, Windows và
+     macOS trên GitHub Actions. Workflow hiện đã có regression thường trực cho cả ba
+     nền tảng; local baseline ngày 13/09/2026 đã qua 15/15 CTest (integration 54/54,
+     parity 61/61). Cần commit/push thay đổi để có bằng chứng Actions cho revision đó.
 
 ## Tiêu chí cho mỗi PR
 
