@@ -57,6 +57,10 @@
    AST, scope tree, name resolution và structured **untyped IR** không phải chờ
    quyết định kiểu này.
 
+   - [ ] **Type policy + Typed IR** — chốt ADR cho dynamic/static/gradual typing,
+     kiểu của symbol/expression/call boundary và chiến lược diagnostic trước khi
+     đưa Typed IR hoặc static checker vào production pipeline.
+
 2. Module semantics
 
    - [x] **Phase 1: identity + export/import namespace + lifecycle contract** — local
@@ -81,34 +85,57 @@
      `obj.method(args)`. Còn phải chốt implicit receiver (`this`/`self`), constructor có
      tham số, inheritance syntax + visibility của instance member trước khi coi object
      model hoàn chỉnh. Trait/generic tiếp tục phụ thuộc quyết định ngôn ngữ.
+   - [ ] **Reflection/metadata** — chốt rõ V++ có chủ đích không hỗ trợ reflection
+     tổng quát hay cung cấp introspection giới hạn. Nếu hỗ trợ, metadata class/method/
+     field/module phải có contract ổn định và không phá visibility/sandbox.
    - [ ] Nâng MVP GC thành tracing GC quản lý object graph an toàn, với root từ VM
      stack/call frame/global/module table và regression cycle/ownership.
    - [ ] Xây stack trace có source span/function/module identity và debugger hook cho
      breakpoint, step, frame/variable inspection trước khi làm debugger UI đầy đủ.
+   - [ ] **Profiler production** — bổ sung CPU/timing/allocation sampling hoặc event
+     hooks có thể gắn vào VM/compiler; benchmark hiện tại chỉ là baseline đo lặp lại,
+     chưa phải profiler cho chương trình V++.
    - [ ] Chỉ tối ưu JIT/dispatch sau benchmark; cần fallback interpreter và regression
      cross-platform.
-   - [ ] Thiết kế concurrency/async và native/FFI với ownership/cancellation rõ ràng.
+   - [ ] **Thread/concurrency/async** — chốt memory model, scheduler/thread API,
+     synchronization, cancellation và cách exception/module/GC tương tác khi chạy
+     đồng thời trước khi thêm `async/await`, channel hay thread public API.
+   - [ ] **FFI** — thiết kế ABI/calling convention, marshal value/string/object,
+     ownership/lifetime, error propagation và allowlist native symbol trước khi cho
+     gọi C/C++ hoặc thư viện hệ thống từ V++.
 
 4. Package resolver
 
    - [ ] Tách package/bare-module lookup khỏi `compileRegistry`: project package,
-     bundled stdlib, compatibility redirect và `VPP_HOME` phải đi qua resolver có
+     bundled standard packages, compatibility redirect và `VPP_HOME` phải đi qua resolver có
      identity/dependency policy rõ ràng trước khi thêm version/lockfile.
+   - [ ] **Dependency solver** — định nghĩa manifest dependency, semantic version/range,
+     source registry/path, conflict resolution, deterministic lockfile và offline/cache
+     behavior; resolver hiện tại mới dừng ở tìm package/module theo tên/path.
 
-5. Chuẩn hoá bytecode
+5. An toàn và bảo mật runtime
+
+   - [ ] **Crypto** — cung cấp package chuẩn tối thiểu cho secure random, hash/HMAC
+     và primitive mã hóa qua implementation đã được kiểm chứng; không tự viết thuật
+     toán mật mã trong VM.
+   - [ ] **Sandbox/permission** — thiết kế capability/permission cho file, network,
+     process/environment và FFI; policy phải áp dụng ở native runtime boundary chứ
+     không chỉ kiểm tra cú pháp ở compiler.
+
+6. Chuẩn hoá bytecode
 
    - [ ] Định nghĩa format, versioning, validation và compatibility policy sau khi
      opcode ổn định.
    - [ ] Viết assembler/disassembler và round-trip test; tránh coi tài liệu proposal
      là format runtime đã phát hành.
 
-6. API embedding
+7. API embedding
 
    - [ ] Thiết kế C API/C++ API cho lifecycle VM, load/chạy program và callback I/O.
    - [ ] Loại dependency vào global compiler state trước khi công bố API ổn định.
    - [ ] Thêm ABI/versioning, sample host và test API độc lập.
 
-7. Phát hành và cộng đồng
+8. Phát hành và cộng đồng
 
    - [ ] Duy trì workflow release hiện có, thêm smoke test artifact cài từ package nếu
      cần.
@@ -121,6 +148,8 @@
 
 - Không bắt đầu Typed IR hay public embedding API trước khi quyết định type policy và
   lifecycle dữ liệu; điều kiện này không chặn sáu bước migration untyped ở trên.
+- Không mở FFI/crypto/network quyền cao trước khi có sandbox/permission model tối thiểu;
+  native boundary phải là nơi enforce policy cuối cùng.
 - Mọi tối ưu runtime phải có benchmark, test lỗi và regression cross-platform.
 - Roadmap cần được cập nhật cùng code để trạng thái checklist không bị nhầm với mức
   hoàn thiện của các platform trưởng thành.
