@@ -15,7 +15,8 @@ vpp-cli <───────────────────────�
 - `vpp-bytecode`: opcode và mô tả bytecode dùng chung cho compiler/runtime.
 - `vpp-frontend`: lexer và keyword map.
 - `vpp-compiler`: compile expression/statement/import cùng symbol state.
-- `vpp-runtime`: VM và native adapters HTTP, file, config, database.
+- `vpp-runtime`: VM và native adapters HTTP/JSON, file/config, filesystem/system,
+  database, collections và text.
 - `vpp-tooling`: formatter, linter, disassembler và renderer AST/IR cho debug.
 - `vpp-cli`: REPL, LSP command loop, package/scaffold commands và entrypoint.
 
@@ -50,6 +51,13 @@ file đã import và class/access-control state. Overload có `CompilationContex
 reset trước compile, snapshot StringPool/function registries sau compile rồi cleanup
 global state cả ở success lẫn exception. Recursive import không được reset giữa
 chừng vì module con phải dùng chung registry của compilation đang hoạt động.
+
+`VM::run()` hiện giữ lifecycle/GC và routing; logic opcode đã được tách thành các
+handler theo nhóm. Unit test handler dùng `VMRuntimeFixture` ở
+`src/include/vpp/runtime/vm_fixture.h` để dựng stack, PC, variables, call frame và
+control stacks rồi gọi handler trực tiếp. Fixture cũng cấu hình `OutputSink`, nên test
+`OP_IN` không phụ thuộc stdout. Fixture này là internal test boundary, không phải API
+embedding ổn định.
 
 ## Compiler pipeline
 
@@ -157,7 +165,7 @@ compiler sinh mã máy production-grade.
 
 ## Headers
 
-Header public mới bắt đầu dưới `src/include/vpp/`, ví dụ `vpp/core/text.h`, `vpp/bytecode/{instruction,opcode}.h`, `vpp/compiler/compiler.h`, `vpp/runtime/{value,vm}.h` và `vpp/tooling/tooling.h`. Đường dẫn header được quy hoạch cho pipeline là `src/include/vpp/frontend/{token,ast,parser}.h` và `src/include/vpp/compiler/{semantic,ir,optimizer,pipeline}.h`; chúng mô tả ranh giới frontend/compiler mới và chưa nên được xem là embedding API ổn định cho đến khi policy kiểu được chốt. `vpp/runtime/value.h` là ranh giới chung cho VM và native adapters, nên native header không phải kéo theo `VM`. Header compatibility dưới `src/include/common`, `src/include/compiler` và `src/include/vm` còn được giữ để tránh phá vỡ mã hiện có. Header compiler detail, VM call frame và native implementation là internal implementation, không phải embedding API.
+Header public mới bắt đầu dưới `src/include/vpp/`, ví dụ `vpp/core/text.h`, `vpp/bytecode/{instruction,opcode}.h`, `vpp/compiler/compiler.h`, `vpp/runtime/{value,vm}.h` và `vpp/tooling/tooling.h`. Đường dẫn header được quy hoạch cho pipeline là `src/include/vpp/frontend/{token,ast,parser}.h` và `src/include/vpp/compiler/{semantic,ir,optimizer,pipeline}.h`; chúng mô tả ranh giới frontend/compiler mới và chưa nên được xem là embedding API ổn định cho đến khi policy kiểu được chốt. `vpp/runtime/value.h` là ranh giới chung cho VM và native adapters, nên native header không phải kéo theo `VM`. `vpp/runtime/vm_fixture.h` nằm trong namespace path mới nhưng chỉ phục vụ test nội bộ. Header compatibility dưới `src/include/common`, `src/include/compiler` và `src/include/vm` còn được giữ để tránh phá vỡ mã hiện có. Header compiler detail, VM call frame, fixture và native implementation là internal implementation, không phải embedding API.
 
 ## Thư viện V++ và framework modules
 
@@ -195,7 +203,7 @@ redirect khi không còn file local tương ứng.
 `gói/thư viện/ứng dụng/main.vi` không import API-project adapter tương thích;
 routes/schema/token của một project mẫu không phải standard library.
 
-Các module này là bundled optional modules, chưa phải package độc lập có dependency/version resolver. HTTP, REST và JSON hiện cùng nằm trong package `mạng` để dùng một entrypoint thống nhất. JSON object/array được ánh xạ trực tiếp sang map/list runtime; filesystem và system helpers không phụ thuộc CLI/stdout.
+Các module này là bundled optional modules, chưa phải package độc lập có dependency/version resolver. HTTP, REST và JSON hiện cùng nằm trong package `mạng` để dùng một entrypoint thống nhất. JSON object/array được ánh xạ trực tiếp sang map/list runtime. `cốt lõi` nối native cho chuyển kiểu/type và random; `vào ra` nối path/filesystem; `hệ thống` nối env/platform/sleep. Các native helper này không phụ thuộc CLI/stdout.
 
 ## Examples, templates và tests
 

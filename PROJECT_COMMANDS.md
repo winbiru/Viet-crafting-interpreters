@@ -186,6 +186,12 @@ Chạy riêng VM opcode unit test qua CTest:
 ctest --test-dir build -R vpp-vm-opcode-smoke-unit --output-on-failure
 ```
 
+Chạy riêng unit test cho từng VM handler qua fixture nội bộ:
+
+```bash
+ctest --test-dir build -R vpp-vm-handler-unit --output-on-failure
+```
+
 Chạy riêng parity test compiler:
 
 ```bash
