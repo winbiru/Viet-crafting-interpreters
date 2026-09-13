@@ -40,8 +40,10 @@ inline constexpr IrLambdaId kInvalidIrLambdaId = static_cast<IrLambdaId>(-1);
 using AstExprId = vietvm::frontend::ExprId;
 inline constexpr AstExprId kInvalidAstExprId = vietvm::frontend::kInvalidExprId;
 
-// Stack-oriented value operations. Structured operations coexist with an
-// explicit marker for syntax that the direct emitter cannot compile yet.
+// Stack-oriented value operations. List/map literals are first-class values:
+// they may appear in call arguments and recursively contain other collection
+// literals. Structured operations coexist with an explicit marker for syntax
+// that the direct emitter cannot compile yet.
 enum class IrValueOpcode {
     UnsupportedDirectRegion,
     ConstInt,

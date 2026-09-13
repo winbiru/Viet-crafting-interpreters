@@ -6,7 +6,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -483,7 +482,10 @@ bool tryLowLevelHttpFileTransportRequest(const std::string &method,
     return true;
 }
 
-bool runLowLevelHttpServerOpen(int port, StackValue &result, std::string &err) {
+bool runLowLevelHttpServerOpen(int port,
+                               StackValue &result,
+                               std::string &err,
+                               const LowLevelHttpLogSink &logSink) {
     if (port <= 0 || port > 65535) {
         err = vietvm::messages::formatMessage(
             vietvm::messages::kNativeHttpServerInvalidPort);
@@ -605,8 +607,10 @@ bool runLowLevelHttpServerOpen(int port, StackValue &result, std::string &err) {
         gLowHttpServers[server->id] = server;
     }
 
-    std::cout << vietvm::messages::messageText(
-        vietvm::messages::kNativeHttpServerListening, {std::to_string(port)}) << std::endl;
+    if (logSink) {
+        logSink(vietvm::messages::messageText(
+            vietvm::messages::kNativeHttpServerListening, {std::to_string(port)}) + "\n");
+    }
     result = make_int_value(server->id);
     return true;
 }

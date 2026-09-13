@@ -3,3 +3,5 @@ nhập "gói/thư viện/vào ra/tệp.vi";
 nhập "gói/thư viện/vào ra/cấu hình.vi";
 nhập "gói/thư viện/vào ra/đồng hồ.vi";
 nhập "gói/thư viện/vào ra/nhật ký.vi";
+nhập "gói/thư viện/vào ra/đường dẫn.vi";
+nhập "gói/thư viện/vào ra/thư mục.vi";

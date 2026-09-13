@@ -1,2 +1,4 @@
-// Gói mạng: HTTP native và adapter máy chủ mức thấp.
+// Gói mạng thống nhất: HTTP native, máy chủ mức thấp, JSON và REST.
 nhập "gói/thư viện/mạng/mạng.vi";
+nhập "gói/thư viện/mạng/json.vi";
+nhập "gói/thư viện/mạng/rest.vi";

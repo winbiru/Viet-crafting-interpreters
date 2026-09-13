@@ -1,0 +1,18 @@
+// Module: thư viện.cốt lõi.chuyển kiểu
+// Chuyển đổi các StackValue phổ biến và quan sát loại runtime.
+
+hàm thành chuỗi(giá trị) {
+    ném "stdlib: thành chuỗi native hook không khả dụng";
+};
+
+hàm thành số nguyên(giá trị) {
+    ném "stdlib: thành số nguyên native hook không khả dụng";
+};
+
+hàm thành số thực(giá trị) {
+    ném "stdlib: thành số thực native hook không khả dụng";
+};
+
+hàm loại của(giá trị) {
+    ném "stdlib: loại của native hook không khả dụng";
+};

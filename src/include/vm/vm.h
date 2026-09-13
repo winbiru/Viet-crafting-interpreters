@@ -7,6 +7,7 @@
 #include <string>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <variant>
 
@@ -14,24 +15,34 @@
 #include "../common/vm_callframe.h"
 #include "vpp/runtime/value.h"
 
+class VMRuntimeFixture;
+
 class VM {
 public:
+    using OutputSink = std::function<void(const std::string&)>;
+
     explicit VM(const std::vector<Instruction>& code);
     VM() = default;
     void run();
     VM(const std::vector<Instruction>& code, const std::vector<std::string>& pool);
+    void setOutputSink(OutputSink sink);
 
     std::unordered_map<int, std::vector<Instruction>> hamBytecodeMap;
     // nameIndex → hamId mapping for function name lookup (shared with child VMs for recursion)
     std::unordered_map<int, int> functionTableByNameIndex;
 
 private:
+    // Shared internal runtime fixture. VM::run() and unit tests use the same
+    // handler-facing API without exposing VM state as part of the public surface.
+    friend class VMRuntimeFixture;
+
     std::vector<Instruction> bytecode;              // Mã bytecode
     std::vector<std::string> stringPool;
 
     std::vector<StackValue> stack;                  // data stack (values)
 
     std::unordered_map<int, StackValue> variables;  // fallback global var store
+    OutputSink outputSink;
 
     // Call stack for function calls
     std::vector<CallFrame> callStack;
@@ -76,6 +87,18 @@ private:
     // Function call helpers
     void enterFunctionFrame(const std::vector<StackValue>& args, int returnPc);
     void leaveCurrentFrame();
+    void invokeFunction(int argc, int hamIdOrName, Opcode op, int curPc);
+    void executeCallOpcode(const Instruction& instr);
+    void executeValueOpcode(const Instruction& instr);
+    void executeIndexOpcode(const Instruction& instr);
+    void executeVariableOpcode(const Instruction& instr);
+    bool executeSwitchOpcode(const Instruction& instr);
+    void executeLoopControlOpcode(const Instruction& instr);
+    void executeBlockOpcode(const Instruction& instr);
+    bool executeExceptionOpcode(const Instruction& instr);
+    bool executeBranchOpcode(const Instruction& instr);
+    void executeOutputOpcode(const Instruction& instr);
+    void emitOutput(const StackValue& value);
 
     // Runtime optimization/maintenance (MVP)
     bool runJitCompiledLinear();

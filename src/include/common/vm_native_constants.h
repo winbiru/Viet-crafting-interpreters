@@ -37,6 +37,14 @@ inline constexpr std::array<const char *, 3> kFnJsonString = {
     "json_quote", "jsonchuỗi", "json chuỗi"
 };
 
+inline constexpr std::array<const char *, 3> kFnJsonParse = {
+    "json_parse", "jsonphântích", "json phân tích"
+};
+
+inline constexpr std::array<const char *, 3> kFnJsonEncode = {
+    "json_encode", "jsontạo", "json tạo"
+};
+
 inline constexpr std::array<const char *, 3> kFnHttpServerOpen = {
     "mang_http_server_open", "mạngmởmáychủapi", "mạng mở máy chủ api"
 };
@@ -103,6 +111,74 @@ inline constexpr std::array<const char *, 3> kFnReadConfig = {
 
 inline constexpr std::array<const char *, 3> kFnReadConfigKey = {
     "doc_config_key", "đọccấuhìnhkhóa", "đọc cấu hình khóa"
+};
+
+inline constexpr std::array<const char *, 2> kFnToString = {
+    "thanh_chuoi", "thành chuỗi"
+};
+
+inline constexpr std::array<const char *, 2> kFnToInt = {
+    "thanh_so_nguyen", "thành số nguyên"
+};
+
+inline constexpr std::array<const char *, 2> kFnToFloat = {
+    "thanh_so_thuc", "thành số thực"
+};
+
+inline constexpr std::array<const char *, 2> kFnTypeOf = {
+    "loai_cua", "loại của"
+};
+
+inline constexpr std::array<const char *, 2> kFnRandomInt = {
+    "ngau_nhien_nguyen", "ngẫu nhiên nguyên"
+};
+
+inline constexpr std::array<const char *, 2> kFnPathJoin = {
+    "duong_dan_noi", "đường dẫn nối"
+};
+
+inline constexpr std::array<const char *, 2> kFnPathName = {
+    "duong_dan_ten", "đường dẫn tên"
+};
+
+inline constexpr std::array<const char *, 2> kFnPathParent = {
+    "duong_dan_cha", "đường dẫn cha"
+};
+
+inline constexpr std::array<const char *, 2> kFnPathExists = {
+    "duong_dan_ton_tai", "đường dẫn tồn tại"
+};
+
+inline constexpr std::array<const char *, 2> kFnPathIsFile = {
+    "la_tep", "là tệp"
+};
+
+inline constexpr std::array<const char *, 2> kFnPathIsDirectory = {
+    "la_thu_muc", "là thư mục"
+};
+
+inline constexpr std::array<const char *, 2> kFnCreateDirectory = {
+    "tao_thu_muc", "tạo thư mục"
+};
+
+inline constexpr std::array<const char *, 2> kFnListDirectory = {
+    "liet_ke_thu_muc", "liệt kê thư mục"
+};
+
+inline constexpr std::array<const char *, 2> kFnRemovePath = {
+    "xoa_duong_dan", "xóa đường dẫn"
+};
+
+inline constexpr std::array<const char *, 2> kFnEnvGet = {
+    "doc_bien_moi_truong", "đọc biến môi trường"
+};
+
+inline constexpr std::array<const char *, 2> kFnPlatformName = {
+    "ten_nen_tang", "tên nền tảng"
+};
+
+inline constexpr std::array<const char *, 2> kFnSleepMs = {
+    "ngu_mili_giay", "ngủ mili giây"
 };
 
 inline constexpr std::array<const char *, 1> kFnDbConnect = {

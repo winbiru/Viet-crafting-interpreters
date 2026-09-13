@@ -239,15 +239,39 @@ bool isLegacyScalarLiteral(const IrInstruction &instruction,
     }
 }
 
-bool isListLiteralValue(const IrProgram &program,
-                        const IrInstruction &instruction,
-                        const IrValue *value) noexcept {
+bool isCollectionLiteralValue(const IrProgram &program,
+                              const IrInstruction &instruction,
+                              const IrValue *value) noexcept {
     if (isLegacyScalarLiteral(instruction, value)) return true;
-    if (value == nullptr || value->opcode != IrValueOpcode::ListLiteral) return false;
-    for (IrValueId element : value->operands) {
-        if (!isListLiteralValue(program, instruction, program.value(element))) return false;
+    if (value == nullptr) return false;
+
+    if (value->opcode == IrValueOpcode::ListLiteral) {
+        if (!hasDelimitedLiteralBounds(instruction, *value, "[", "]")) return false;
+        for (IrValueId element : value->operands) {
+            if (!isCollectionLiteralValue(
+                    program, instruction, program.value(element))) {
+                return false;
+            }
+        }
+        return true;
     }
-    return true;
+
+    if (value->opcode == IrValueOpcode::MapLiteral) {
+        if (!hasDelimitedLiteralBounds(instruction, *value, "{", "}") ||
+            value->operands.size() % 2 != 0) {
+            return false;
+        }
+        for (std::size_t index = 0; index < value->operands.size(); index += 2) {
+            if (!isMapKey(instruction, program.value(value->operands[index])) ||
+                !isCollectionLiteralValue(
+                    program, instruction, program.value(value->operands[index + 1]))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    return false;
 }
 
 bool isDirectIndexBase(const IrValue *value) noexcept {
@@ -379,31 +403,14 @@ bool supportsValue(const IrProgram &program,
             break;
 
         case IrValueOpcode::MapLiteral:
-            // Legacy compileExpr recognizes a map only when it occupies the
-            // complete expression slice or the complete RHS of a simple '='.
-            // It does not parse a map nested under unary/binary/compound ops.
-            supported = valueContext != ValueContext::Nested &&
-                        valueContext != ValueContext::DedicatedCallStatementRoot &&
-                        hasDelimitedLiteralBounds(sourceOwner, *value, "{", "}") &&
-                        value->operands.size() % 2 == 0;
-            for (std::size_t index = 0; supported && index < value->operands.size(); index += 2) {
-                supported = isMapKey(
-                                sourceOwner,
-                                program.value(value->operands[index])) &&
-                            isLegacyScalarLiteral(
-                                sourceOwner,
-                                program.value(value->operands[index + 1]));
-            }
+            // Composite literals are first-class IR values.  The direct
+            // emitter can materialize them anywhere a value is accepted,
+            // including call arguments and nested list/map values.
+            supported = isCollectionLiteralValue(program, sourceOwner, value);
             break;
 
         case IrValueOpcode::ListLiteral:
-            supported = valueContext != ValueContext::Nested &&
-                        valueContext != ValueContext::DedicatedCallStatementRoot &&
-                        hasDelimitedLiteralBounds(sourceOwner, *value, "[", "]");
-            for (IrValueId element : value->operands) {
-                supported = supported && isListLiteralValue(
-                    program, sourceOwner, program.value(element));
-            }
+            supported = isCollectionLiteralValue(program, sourceOwner, value);
             break;
 
         case IrValueOpcode::Index:
@@ -1034,6 +1041,8 @@ bool appendTaggedScalarLiteral(std::ostringstream &encoded,
     }
 }
 
+std::string encodeListLiteral(const IrProgram &program, const IrValue &list);
+
 std::string encodeMapLiteral(const IrProgram &program, const IrValue &map) {
     constexpr char recordSeparator = vietvm::bytecode::kLiteralRecordSeparator;
     constexpr char fieldSeparator = vietvm::bytecode::kLiteralFieldSeparator;
@@ -1046,9 +1055,18 @@ std::string encodeMapLiteral(const IrProgram &program, const IrValue &map) {
                                               ? stripQuotes(key.text)
                                               : key.text)
                 << fieldSeparator;
-        if (!appendTaggedScalarLiteral(encoded, value, fieldSeparator)) {
-            throw std::logic_error(std::string(messages::kInternalDirectIrUnsupportedMapValue));
+        if (appendTaggedScalarLiteral(encoded, value, fieldSeparator)) continue;
+        if (value.opcode == IrValueOpcode::ListLiteral) {
+            encoded << 'l' << fieldSeparator
+                    << escapeLiteralWireField(encodeListLiteral(program, value));
+            continue;
         }
+        if (value.opcode == IrValueOpcode::MapLiteral) {
+            encoded << 'm' << fieldSeparator
+                    << escapeLiteralWireField(encodeMapLiteral(program, value));
+            continue;
+        }
+        throw std::logic_error(std::string(messages::kInternalDirectIrUnsupportedMapValue));
     }
     return encoded.str();
 }
@@ -1064,6 +1082,11 @@ std::string encodeListLiteral(const IrProgram &program, const IrValue &list) {
         if (value.opcode == IrValueOpcode::ListLiteral) {
             encoded << 'l' << fieldSeparator
                     << escapeLiteralWireField(encodeListLiteral(program, value));
+            continue;
+        }
+        if (value.opcode == IrValueOpcode::MapLiteral) {
+            encoded << 'm' << fieldSeparator
+                    << escapeLiteralWireField(encodeMapLiteral(program, value));
             continue;
         }
         throw std::logic_error(std::string(messages::kInternalDirectIrUnsupportedListValue));

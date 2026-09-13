@@ -1,4 +1,3 @@
-#include <iostream>
 #include <stdexcept>
 #include <vector>
 #include <stack>
@@ -31,11 +30,14 @@
 #include "common/vm_native_helpers.h"
 #include "common/vm_native_constants.h"
 #include "common/vm_native_http_helpers.h"
+#include "common/vm_native_json_helpers.h"
 #include "common/vm_low_level_http_server.h"
+#include "common/vm_native_stdlib_helpers.h"
 #include "common/vm_native_text_helpers.h"
 #include "vpp/bytecode/literal_wire.h"
 #include "vpp/core/message_constants.h"
 #include "vpp/core/text.h"
+#include "vpp/runtime/vm_fixture.h"
 
 #if defined(_WIN32) && defined(_MSC_VER)
 #ifndef popen
@@ -81,49 +83,37 @@ static bool handleNativeHttpClientFunction(const std::string &fn,
     return false;
 }
 
-static std::string escapeJsonString(const std::string &input) {
-    static constexpr char hex[] = "0123456789abcdef";
-
-    std::string output;
-    output.reserve(input.size() + 16);
-    for (unsigned char c : input) {
-        switch (c) {
-            case '"': output += "\\\""; break;
-            case '\\': output += "\\\\"; break;
-            case '\b': output += "\\b"; break;
-            case '\f': output += "\\f"; break;
-            case '\n': output += "\\n"; break;
-            case '\r': output += "\\r"; break;
-            case '\t': output += "\\t"; break;
-            default:
-                if (c < 0x20) {
-                    output += "\\u00";
-                    output.push_back(hex[(c >> 4) & 0x0f]);
-                    output.push_back(hex[c & 0x0f]);
-                } else {
-                    output.push_back(static_cast<char>(c));
-                }
-                break;
-        }
-    }
-    return output;
-}
-
 static bool handleNativeJsonFunction(const std::string &fn,
                                      const std::vector<StackValue> &args,
                                      StackValue &result,
     std::string &err) {
     if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnJsonEscape)) {
         if (!requireNativeArgumentCount(args, fn, 1, err)) return true;
-        result = make_string_value(escapeJsonString(vietvm::helpers::argToRawString(args[0])));
+        result = make_string_value(vietvm::helpers::escapeJsonString(
+            vietvm::helpers::argToRawString(args[0])));
         return true;
     }
 
     if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnJsonString)) {
         if (!requireNativeArgumentCount(args, fn, 1, err)) return true;
         result = make_string_value(std::string("\"") +
-                                   escapeJsonString(vietvm::helpers::argToRawString(args[0])) +
+                                   vietvm::helpers::escapeJsonString(
+                                       vietvm::helpers::argToRawString(args[0])) +
                                    "\"");
+        return true;
+    }
+
+    if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnJsonParse)) {
+        if (!requireNativeArgumentCount(args, fn, 1, err)) return true;
+        vietvm::helpers::parseJson(vietvm::helpers::argToRawString(args[0]), result, err);
+        return true;
+    }
+
+    if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnJsonEncode)) {
+        if (!requireNativeArgumentCount(args, fn, 1, err)) return true;
+        std::string encoded;
+        if (!vietvm::helpers::stringifyJson(args[0], encoded, err)) return true;
+        result = make_string_value(encoded);
         return true;
     }
 
@@ -133,12 +123,13 @@ static bool handleNativeJsonFunction(const std::string &fn,
 static bool handleNativeLowLevelHttpFunction(const std::string &fn,
                                              const std::vector<StackValue> &args,
                                              StackValue &result,
-    std::string &err) {
+                                             std::string &err,
+                                             const VM::OutputSink &outputSink) {
     if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnHttpServerOpen)) {
         if (!requireNativeArgumentCount(args, fn, 1, err)) return true;
         int port = 0;
         if (!vietvm::helpers::parseIntArgFromStack(args[0], fn, vietvm::constants::kArgLabelPort, port, err)) return true;
-        return vietvm::helpers::runLowLevelHttpServerOpen(port, result, err);
+        return vietvm::helpers::runLowLevelHttpServerOpen(port, result, err, outputSink);
     }
 
     if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnHttpServerNext)) {
@@ -211,7 +202,8 @@ static bool executeNativeStdlibFunction(int hamIdOrName,
                                         const std::unordered_map<int, int> &functionTableByNameIndex,
                                         const std::unordered_map<int, std::vector<Instruction>> &functionBytecode,
                                         StackValue &result,
-                                        std::string &err) {
+                                        std::string &err,
+                                        const VM::OutputSink &outputSink) {
     std::string fn;
     if (hamIdOrName < 0) {
         int nameIdx = -(hamIdOrName + 1);
@@ -238,6 +230,8 @@ static bool executeNativeStdlibFunction(int hamIdOrName,
     if (vietvm::helpers::handleNativeCollectionFunction(fn, args, result, err)) return true;
 
     if (vietvm::helpers::handleNativeTextFunction(fn, args, result, err)) return true;
+
+    if (vietvm::helpers::handleNativeFoundationFunction(fn, args, result, err)) return true;
 
     if (vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnFileLineCount) ||
         vietvm::constants::matchesAnyName(fn, vietvm::constants::kFnFileWordCount)) {
@@ -388,10 +382,13 @@ static bool executeNativeStdlibFunction(int hamIdOrName,
 
     if (handleNativeHttpClientFunction(fn, args, result, err)) return true;
     if (handleNativeJsonFunction(fn, args, result, err)) return true;
-    if (handleNativeLowLevelHttpFunction(fn, args, result, err)) return true;
+    if (handleNativeLowLevelHttpFunction(fn, args, result, err, outputSink)) return true;
 
     return false;
 }
+
+static MapValue decodeMapFromStringPool(const std::string &encoded);
+static std::vector<StackValue> decodeListFromStringPool(const std::string &encoded);
 
 static MapValue decodeMapFromStringPool(const std::string &encoded) {
     constexpr char RS = vietvm::bytecode::kLiteralRecordSeparator;
@@ -425,6 +422,10 @@ static MapValue decodeMapFromStringPool(const std::string &encoded) {
                 m.entries[key] = make_string_value(valRaw);
             } else if (typeTag == "n") {
                 m.entries[key] = make_null_value();
+            } else if (typeTag == "l") {
+                m.entries[key] = make_list_value(decodeListFromStringPool(valRaw));
+            } else if (typeTag == "m") {
+                m.entries[key] = make_map_value(decodeMapFromStringPool(valRaw));
             } else {
                 throw std::runtime_error(vietvm::messages::formatMessage(
                     vietvm::messages::kVmMapLiteralTypeTagInvalid));
@@ -464,6 +465,9 @@ static std::vector<StackValue> decodeListFromStringPool(const std::string &encod
         else if (typeTag == "l") {
             list.push_back(make_list_value(decodeListFromStringPool(value)));
         }
+        else if (typeTag == "m") {
+            list.push_back(make_map_value(decodeMapFromStringPool(value)));
+        }
         else throw std::runtime_error(vietvm::messages::formatMessage(
             vietvm::messages::kVmMapLiteralTypeTagInvalid));
         if (end == encoded.size()) break;
@@ -502,6 +506,16 @@ static StackValue decodeDefaultParamValue(const std::string &encoded) {
  */
 VM::VM(const std::vector<Instruction>& code, const std::vector<std::string>& pool)
     : bytecode(code), stringPool(pool), pc(0) {}
+
+void VM::setOutputSink(OutputSink sink) {
+    outputSink = std::move(sink);
+}
+
+void VM::emitOutput(const StackValue& value) {
+    if (!outputSink) return;
+    outputSink(vietvm::messages::messageText(vietvm::messages::kVmOutputPrefix)
+               + sv_to_string(value) + "\n");
+}
 
 // Convert StackValue to boolean
 bool toBool(const StackValue& value) {
@@ -656,13 +670,7 @@ bool VM::runJitCompiledLinear() {
                 break;
 
             case OP_IN:
-                program.push_back([this]() {
-                    if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmEmptyStackWhenPrint), OP_IN, (int)pc);
-                    StackValue value = stack.back(); stack.pop_back();
-                    std::cout << vietvm::messages::messageText(vietvm::messages::kVmOutputPrefix)
-                              << sv_to_string(value) << std::endl;
-                });
+                program.push_back([this, instr]() { executeOutputOpcode(instr); });
                 break;
 
             case OP_DONG_LENH:
@@ -688,7 +696,749 @@ bool VM::runJitCompiledLinear() {
     return true;
 }
 
+void VM::invokeFunction(int argc, int hamIdOrName, Opcode op, int curPc) {
+    std::vector<StackValue> args;
+    args.reserve(argc);
+    for (int i = 0; i < argc; ++i) {
+        if (stack.empty()) {
+            args.emplace_back(0);
+        } else {
+            args.push_back(stack.back());
+            stack.pop_back();
+        }
+    }
+    std::reverse(args.begin(), args.end());
+
+    StackValue nativeResult = make_int_value(0);
+    std::string nativeErr;
+    if (executeNativeStdlibFunction(hamIdOrName, args, stringPool,
+                                    functionTableByNameIndex, hamBytecodeMap,
+                                    nativeResult, nativeErr, outputSink)) {
+        if (!nativeErr.empty()) {
+            throw runtime_error_op(nativeErr, op, curPc);
+        }
+        stack.push_back(nativeResult);
+        return;
+    }
+
+    CallFrame frame;
+    frame.args = args;
+    frame.localsIndexed = true;
+    frame.returnPc = curPc + 1;
+    callStack.push_back(frame);
+
+    auto it = hamBytecodeMap.find(hamIdOrName);
+    if (it == hamBytecodeMap.end()) {
+        const int nameIndex = (hamIdOrName < 0) ? -(hamIdOrName + 1) : hamIdOrName;
+        auto ftIt = functionTableByNameIndex.find(nameIndex);
+        if (ftIt != functionTableByNameIndex.end()) {
+            it = hamBytecodeMap.find(ftIt->second);
+        } else {
+            for (const Instruction &hinst : bytecode) {
+                if (hinst.op == OP_HAM && hinst.operand == nameIndex) {
+                    auto resolved = hamBytecodeMap.find(hinst.operandIndex);
+                    if (resolved != hamBytecodeMap.end()) {
+                        it = resolved;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (it == hamBytecodeMap.end()) {
+        if (!callStack.empty()) callStack.pop_back();
+        const int nameIndex = (hamIdOrName < 0) ? -(hamIdOrName + 1) : hamIdOrName;
+        std::string fnName = "?";
+        if (nameIndex >= 0 && nameIndex < static_cast<int>(stringPool.size())) {
+            fnName = stringPool[nameIndex];
+        }
+        throw runtime_error_op(
+            vietvm::messages::formatMessage(vietvm::messages::kVmFunctionNotFound,
+                                             {std::to_string(hamIdOrName), fnName}),
+            op,
+            curPc
+        );
+    }
+
+    VM funcVM(it->second, stringPool);
+    funcVM.outputSink = outputSink;
+    funcVM.variables = variables;
+    funcVM.callStack.clear();
+    funcVM.callStack.push_back(callStack.back());
+    funcVM.hamBytecodeMap = hamBytecodeMap;
+    funcVM.functionTableByNameIndex = functionTableByNameIndex;
+    funcVM.run();
+
+    variables = funcVM.variables;
+    if (!funcVM.stack.empty()) {
+        stack.push_back(funcVM.stack.back());
+    }
+    if (!callStack.empty()) callStack.pop_back();
+}
+
+void VM::executeCallOpcode(const Instruction& instr) {
+    if (instr.op == OP_GOI) {
+        invokeFunction(instr.operand, instr.operandIndex, instr.op, static_cast<int>(pc));
+        return;
+    }
+
+    if (instr.op != OP_GOI_GIAN_TIEP) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmUnknownOpcode), instr.op, pc);
+    }
+    if (stack.empty()) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmIndirectCallMissingReference), instr.op, pc);
+    }
+
+    StackValue calleeVal = stack.back();
+    stack.pop_back();
+
+    int hamIdOrName = -1;
+    if (std::holds_alternative<int>(calleeVal)) {
+        hamIdOrName = std::get<int>(calleeVal);
+    } else if (std::holds_alternative<std::string>(calleeVal)) {
+        const auto &name = std::get<std::string>(calleeVal);
+        try {
+            hamIdOrName = std::stoi(name);
+        } catch (...) {
+            auto it = std::find(stringPool.begin(), stringPool.end(), name);
+            if (it == stringPool.end()) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmIndirectCallInvalidReference), instr.op, pc);
+            }
+            hamIdOrName = -static_cast<int>(std::distance(stringPool.begin(), it)) - 1;
+        }
+    } else {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmIndirectCallUnsupportedReferenceType), instr.op, pc);
+    }
+
+    invokeFunction(instr.operand, hamIdOrName, instr.op, static_cast<int>(pc));
+}
+
+void VM::executeValueOpcode(const Instruction& instr) {
+    switch (instr.op) {
+        case OP_BIEN_SO:
+            stack.emplace_back(instr.operand);
+            return;
+        case OP_TEN_BIEN_ID:
+            stack.emplace_back(instr.operandIndex);
+            return;
+        case OP_MODULO: {
+            if (stack.size() < 2) throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmMissingModuloOperands), instr.op, pc);
+            StackValue b = stack.back(); stack.pop_back();
+            StackValue a = stack.back(); stack.pop_back();
+            stack.push_back(evaluateModuloOperator(a, b, instr.op, static_cast<int>(pc)));
+            return;
+        }
+        case OP_CONG: case OP_TRU: case OP_NHAN: case OP_CHIA:
+        case OP_Logic_VA: case OP_Logic_HOAC:
+        case OP_SO_SANH_BANG: case OP_KHAC_BANG:
+        case OP_LON_HON: case OP_NHO_HON:
+        case OP_LON_HON_HOAC_BANG: case OP_NHO_HON_HOAC_BANG: {
+            if (stack.size() < 2) throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmNotEnoughOperands), instr.op, pc);
+            StackValue b = stack.back(); stack.pop_back();
+            StackValue a = stack.back(); stack.pop_back();
+            stack.push_back(evaluateBinaryOperator(instr.op, a, b, static_cast<int>(pc)));
+            return;
+        }
+        case OP_KHONG: {
+            if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmMissingNotOperands), instr.op, pc);
+            StackValue a = stack.back(); stack.pop_back();
+            stack.push_back((as_int(a, instr.op, pc) == 0) ? 1 : 0);
+            return;
+        }
+        case OP_CHUOI:
+            if (instr.operandIndex < 0 || instr.operandIndex >= static_cast<int>(stringPool.size())) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmInvalidStringIndex), instr.op, pc);
+            }
+            stack.push_back(stringPool[instr.operandIndex]);
+            return;
+        case OP_BIEN_SO_FLOAT:
+            if (instr.operandIndex < 0 || instr.operandIndex >= static_cast<int>(stringPool.size())) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmInvalidFloatIndex), instr.op, pc);
+            }
+            try {
+                stack.push_back(make_float_value(std::stod(stringPool[instr.operandIndex])));
+            } catch (...) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmCannotConvertToFloat,
+                    {stringPool[instr.operandIndex]}), instr.op, pc);
+            }
+            return;
+        case OP_RONG_GIA_TRI:
+            stack.push_back(make_null_value());
+            return;
+        case OP_DUNG_GIA_TRI:
+            stack.push_back(make_int_value(1));
+            return;
+        case OP_SAI_GIA_TRI:
+            stack.push_back(make_int_value(0));
+            return;
+        case OP_MAP_LITERAL:
+            if (instr.operandIndex < 0 || instr.operandIndex >= static_cast<int>(stringPool.size())) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmInvalidMapIndex), instr.op, pc);
+            }
+            try {
+                stack.push_back(make_map_value(decodeMapFromStringPool(stringPool[instr.operandIndex])));
+            } catch (const std::exception &ex) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmParseMapLiteral, {ex.what()}), instr.op, pc);
+            }
+            return;
+        case OP_LIST_LITERAL:
+            if (instr.operandIndex < 0 || instr.operandIndex >= static_cast<int>(stringPool.size())) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmInvalidListIndex), instr.op, pc);
+            }
+            try {
+                stack.push_back(make_list_value(decodeListFromStringPool(stringPool[instr.operandIndex])));
+            } catch (const std::exception &ex) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmParseMapLiteral, {ex.what()}), instr.op, pc);
+            }
+            return;
+        case OP_PHU_DINH: {
+            if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmMissingNegationOperand), instr.op, pc);
+            StackValue operand = stack.back(); stack.pop_back();
+            stack.push_back(toBool(operand) ? 0 : 1);
+            return;
+        }
+        default:
+            throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmUnknownOpcode), instr.op, pc);
+    }
+}
+
+void VM::executeIndexOpcode(const Instruction& instr) {
+    if (instr.op == OP_DOC_CHI_SO) {
+        if (stack.size() < 2) {
+            throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmNotEnoughOperands), instr.op, pc);
+        }
+        StackValue indexValue = stack.back(); stack.pop_back();
+        StackValue container = stack.back(); stack.pop_back();
+        if (!std::holds_alternative<int>(indexValue)) {
+            throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmIndexMustBeInteger), instr.op, pc);
+        }
+        const int index = std::get<int>(indexValue);
+        if (index < 0) {
+            throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmIndexOutOfRange), instr.op, pc);
+        }
+        if (std::holds_alternative<ListHandle>(container)) {
+            const ListHandle &list = std::get<ListHandle>(container);
+            if (list == nullptr || static_cast<std::size_t>(index) >= list->elements.size()) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmIndexOutOfRange), instr.op, pc);
+            }
+            stack.push_back(list->elements[static_cast<std::size_t>(index)]);
+            return;
+        }
+        if (std::holds_alternative<TupleHandle>(container)) {
+            const TupleHandle &tuple = std::get<TupleHandle>(container);
+            if (tuple == nullptr || static_cast<std::size_t>(index) >= tuple->elements.size()) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmIndexOutOfRange), instr.op, pc);
+            }
+            stack.push_back(tuple->elements[static_cast<std::size_t>(index)]);
+            return;
+        }
+        if (std::holds_alternative<std::string>(container)) {
+            const std::string &text = std::get<std::string>(container);
+            if (static_cast<std::size_t>(index) >= text.size()) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmIndexOutOfRange), instr.op, pc);
+            }
+            stack.push_back(make_string_value(std::string(1, text[static_cast<std::size_t>(index)])));
+            return;
+        }
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmIndexNeedsListOrString), instr.op, pc);
+    }
+
+    if (instr.op != OP_GAN_CHI_SO) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmUnknownOpcode), instr.op, pc);
+    }
+    if (stack.size() < 3) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmAssignNotEnoughOperands), instr.op, pc);
+    }
+    StackValue value = stack.back(); stack.pop_back();
+    StackValue indexValue = stack.back(); stack.pop_back();
+    StackValue container = stack.back(); stack.pop_back();
+    if (!std::holds_alternative<int>(indexValue)) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmIndexMustBeInteger), instr.op, pc);
+    }
+    const int index = std::get<int>(indexValue);
+    if (index < 0 || !std::holds_alternative<ListHandle>(container)) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            index < 0 ? vietvm::messages::kVmIndexOutOfRange
+                      : vietvm::messages::kVmIndexNeedsListOrString), instr.op, pc);
+    }
+    const ListHandle &list = std::get<ListHandle>(container);
+    if (list == nullptr || static_cast<std::size_t>(index) >= list->elements.size()) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmIndexOutOfRange), instr.op, pc);
+    }
+    list->elements[static_cast<std::size_t>(index)] = std::move(value);
+}
+
+void VM::executeVariableOpcode(const Instruction& instr) {
+    switch (instr.op) {
+        case OP_KHOI_TAO: {
+            const int varId = instr.operandIndex;
+            if (!callStack.empty()) {
+                CallFrame &frame = callStack.back();
+                if (frame.localsIndexed) {
+                    if (varId >= 0 && varId >= static_cast<int>(frame.localsVec.size())) {
+                        frame.localsVec.resize(varId + 1, make_int_value(0));
+                    } else if (varId >= 0) {
+                        frame.localsVec[varId] = make_int_value(0);
+                    }
+                } else {
+                    frame.localsMap[varId] = make_int_value(0);
+                }
+            } else if (variables.count(varId) == 0) {
+                variables[varId] = make_int_value(0);
+            }
+            return;
+        }
+        case OP_TEN_BIEN_GIA_TRI: {
+            const int varId = instr.operandIndex;
+            if (!callStack.empty()) {
+                CallFrame &frame = callStack.back();
+                if (frame.localsIndexed) {
+                    if (varId >= 0 && varId < static_cast<int>(frame.localsVec.size())) {
+                        stack.push_back(frame.localsVec[varId]);
+                        return;
+                    }
+                } else {
+                    auto itloc = frame.localsMap.find(varId);
+                    if (itloc != frame.localsMap.end()) {
+                        stack.push_back(itloc->second);
+                        return;
+                    }
+                }
+            }
+            if (variables.count(varId) == 0) {
+                variables[varId] = make_int_value(0);
+            }
+            stack.push_back(variables[varId]);
+            return;
+        }
+        case OP_GAN: {
+            if (stack.size() < 2) throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmAssignNotEnoughOperands), instr.op, pc);
+
+            StackValue top = stack.back();
+            StackValue second = stack[stack.size() - 2];
+            StackValue varIdVal;
+            StackValue valueVal;
+            if (std::holds_alternative<int>(top) && std::holds_alternative<std::string>(second)) {
+                varIdVal = top;
+                valueVal = second;
+            } else if (std::holds_alternative<std::string>(top) && std::holds_alternative<int>(second)) {
+                varIdVal = second;
+                valueVal = top;
+            } else {
+                varIdVal = top;
+                valueVal = second;
+            }
+            stack.pop_back();
+            stack.pop_back();
+
+            if (!std::holds_alternative<int>(varIdVal)) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmVariableIdMustBeInt), instr.op, pc);
+            }
+            const int varId = std::get<int>(varIdVal);
+            if (!callStack.empty()) {
+                CallFrame &frame = callStack.back();
+                if (frame.localsIndexed) {
+                    if (varId >= 0 && varId < static_cast<int>(frame.localsVec.size())) {
+                        frame.localsVec[varId] = valueVal;
+                        return;
+                    }
+                    if (variables.count(varId) != 0) {
+                        variables[varId] = valueVal;
+                        return;
+                    }
+                    if (varId >= 0) {
+                        frame.localsVec.resize(varId + 1, make_int_value(0));
+                        frame.localsVec[varId] = valueVal;
+                        return;
+                    }
+                } else {
+                    auto itloc = frame.localsMap.find(varId);
+                    if (itloc != frame.localsMap.end()) {
+                        frame.localsMap[varId] = valueVal;
+                        return;
+                    }
+                    if (variables.count(varId) != 0) {
+                        variables[varId] = valueVal;
+                        return;
+                    }
+                    frame.localsMap[varId] = valueVal;
+                    return;
+                }
+            }
+            variables[varId] = valueVal;
+            return;
+        }
+        case OP_PARAM: {
+            const int localId = instr.operandIndex;
+            const int argIndex = instr.operandValue;
+            if (callStack.empty()) {
+                variables[localId] = make_int_value(0);
+                return;
+            }
+            CallFrame &frame = callStack.back();
+            StackValue value;
+            if (argIndex >= 0 && argIndex < static_cast<int>(frame.args.size())) {
+                value = frame.args[argIndex];
+            } else {
+                value = make_int_value(0);
+                vmLog(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmParamArgIndexOutOfRange));
+            }
+            if (frame.localsIndexed) {
+                if (localId >= static_cast<int>(frame.localsVec.size())) {
+                    frame.localsVec.resize(localId + 1, make_int_value(0));
+                }
+                frame.localsVec[localId] = value;
+            } else {
+                frame.localsMap[localId] = value;
+            }
+            return;
+        }
+        case OP_PARAM_MAC_DINH: {
+            const int defaultIndex = instr.operand;
+            const int localId = instr.operandIndex;
+            const int argIndex = instr.operandValue;
+            if (defaultIndex < 0 || defaultIndex >= static_cast<int>(stringPool.size())) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmDefaultParamIndexInvalid), instr.op, pc);
+            }
+            StackValue value;
+            if (!callStack.empty() && argIndex >= 0 && argIndex < static_cast<int>(callStack.back().args.size())) {
+                value = callStack.back().args[argIndex];
+            } else {
+                value = decodeDefaultParamValue(stringPool[defaultIndex]);
+            }
+            if (callStack.empty()) {
+                variables[localId] = value;
+                return;
+            }
+            CallFrame &frame = callStack.back();
+            if (frame.localsIndexed) {
+                if (localId >= static_cast<int>(frame.localsVec.size())) {
+                    frame.localsVec.resize(localId + 1, make_int_value(0));
+                }
+                frame.localsVec[localId] = value;
+            } else {
+                frame.localsMap[localId] = value;
+            }
+            return;
+        }
+        case OP_CONG_MOT:
+        case OP_TRU_MOT: {
+            if (stack.empty()) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    instr.op == OP_CONG_MOT ? vietvm::messages::kVmIncrementEmptyStack
+                                           : vietvm::messages::kVmDecrementEmptyStack), instr.op, pc);
+            }
+            StackValue top = stack.back(); stack.pop_back();
+            const int delta = instr.op == OP_CONG_MOT ? 1 : -1;
+            auto pushResult = [&](int value) { stack.push_back(make_int_value(value)); };
+            if (std::holds_alternative<int>(top)) {
+                const int idOrVal = std::get<int>(top);
+                bool updated = false;
+                if (!callStack.empty()) {
+                    CallFrame &frame = callStack.back();
+                    if (frame.localsIndexed) {
+                        if (idOrVal >= 0 && idOrVal < static_cast<int>(frame.localsVec.size())) {
+                            const int current = as_int(frame.localsVec[idOrVal], instr.op, pc);
+                            frame.localsVec[idOrVal] = make_int_value(current + delta);
+                            pushResult(current + delta);
+                            updated = true;
+                        }
+                    } else {
+                        auto itLoc = frame.localsMap.find(idOrVal);
+                        if (itLoc != frame.localsMap.end()) {
+                            const int current = as_int(itLoc->second, instr.op, pc);
+                            itLoc->second = make_int_value(current + delta);
+                            pushResult(current + delta);
+                            updated = true;
+                        }
+                    }
+                }
+                if (!updated) {
+                    const int current = variables.count(idOrVal)
+                        ? as_int(variables[idOrVal], instr.op, pc) : 0;
+                    variables[idOrVal] = make_int_value(current + delta);
+                    pushResult(current + delta);
+                }
+                return;
+            }
+            if (instr.op == OP_CONG_MOT && std::holds_alternative<std::string>(top)) {
+                try {
+                    pushResult(std::stoi(std::get<std::string>(top)) + 1);
+                    return;
+                } catch (...) {
+                    throw runtime_error_op(vietvm::messages::formatMessage(
+                        vietvm::messages::kVmIncrementCannotIncreaseString), instr.op, pc);
+                }
+            }
+            throw runtime_error_op(vietvm::messages::formatMessage(
+                instr.op == OP_CONG_MOT ? vietvm::messages::kVmIncrementUnsupportedType
+                                       : vietvm::messages::kVmDecrementUnsupportedType), instr.op, pc);
+        }
+        default:
+            throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmUnknownOpcode), instr.op, pc);
+    }
+}
+
+bool VM::executeSwitchOpcode(const Instruction& instr) {
+    switch (instr.op) {
+        case OP_CHON: {
+            if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmSwitchEmptyStack), instr.op, pc);
+            SwitchFrame frame;
+            frame.switchValue = stack.back();
+            stack.pop_back();
+            frame.skippingCase = true;
+            frame.caseMatched = false;
+            frame.blockDepthAtStart = blockStack.size();
+            switchStack.push_back(frame);
+            return false;
+        }
+        case OP_CA: {
+            if (switchStack.empty() || !switchStack.back().switchValue.has_value()) {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmCaseOutsideSwitch), instr.op, pc);
+            }
+            auto &ctx = switchStack.back();
+            bool match = false;
+            if (instr.operandIndex >= 0) {
+                const std::string caseStr = stringPool.at(instr.operandIndex);
+                if (std::holds_alternative<std::string>(*ctx.switchValue)) {
+                    match = std::get<std::string>(*ctx.switchValue) == caseStr;
+                } else if (std::holds_alternative<int>(*ctx.switchValue)) {
+                    match = std::to_string(std::get<int>(*ctx.switchValue)) == caseStr;
+                }
+            } else if (instr.operandIndex == -1) {
+                if (std::holds_alternative<int>(*ctx.switchValue)) {
+                    match = std::get<int>(*ctx.switchValue) == instr.operand;
+                } else if (std::holds_alternative<std::string>(*ctx.switchValue)) {
+                    try {
+                        match = std::stoi(std::get<std::string>(*ctx.switchValue)) == instr.operand;
+                    } catch (...) {
+                        match = false;
+                    }
+                }
+            } else if (instr.operandIndex == -2) {
+                const int varId = instr.operand;
+                int varValue = 0;
+                if (variables.count(varId)) {
+                    varValue = as_int(variables[varId], instr.op, pc);
+                }
+                if (std::holds_alternative<int>(*ctx.switchValue)) {
+                    match = std::get<int>(*ctx.switchValue) == varValue;
+                } else if (std::holds_alternative<std::string>(*ctx.switchValue)) {
+                    try {
+                        match = std::stoi(std::get<std::string>(*ctx.switchValue)) == varValue;
+                    } catch (...) {
+                        match = false;
+                    }
+                }
+            } else {
+                throw runtime_error_op(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmCaseInvalidOperandFormat), instr.op, pc);
+            }
+            if (!ctx.caseMatched && match) {
+                ctx.skippingCase = false;
+                ctx.caseMatched = true;
+            } else {
+                ctx.skippingCase = true;
+            }
+            return false;
+        }
+        case OP_MAC_DINH: {
+            if (switchStack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmDefaultOutsideSwitch), instr.op, pc);
+            auto &ctx = switchStack.back();
+            if (!ctx.caseMatched) {
+                ctx.skippingCase = false;
+                ctx.caseMatched = true;
+            } else {
+                ctx.skippingCase = true;
+            }
+            return false;
+        }
+        case OP_THOAT: {
+            if (switchStack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmBreakOutsideSwitch), instr.op, pc);
+            switchStack.back().skippingCase = true;
+            while (pc < bytecode.size()) {
+                if (bytecode[pc].op == OP_DONG_KHOI) {
+                    ++pc;
+                    break;
+                }
+                ++pc;
+            }
+            return true;
+        }
+        default:
+            throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmUnknownOpcode), instr.op, pc);
+    }
+}
+
+void VM::executeLoopControlOpcode(const Instruction& instr) {
+    if (instr.op != OP_BO_QUA) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmUnknownOpcode), instr.op, pc);
+    }
+    size_t scanPc = pc + 1;
+    while (scanPc < bytecode.size()) {
+        if (bytecode[scanPc].op == OP_CAP_NHAT) {
+            pc = scanPc;
+            return;
+        }
+        ++scanPc;
+    }
+    throw runtime_error_op(vietvm::messages::formatMessage(
+        vietvm::messages::kVmContinueMissingUpdate), instr.op, pc);
+}
+
+void VM::executeBlockOpcode(const Instruction& instr) {
+    if (instr.op == OP_MO_KHOI) {
+        blockStack.push_back(pc);
+        ++blockDepth;
+        return;
+    }
+    if (instr.op != OP_DONG_KHOI) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmUnknownOpcode), instr.op, pc);
+    }
+    if (blockStack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
+        vietvm::messages::kVmNoOpenBlock), instr.op, pc);
+    blockStack.pop_back();
+    if (blockDepth > 0) --blockDepth;
+    if (!switchStack.empty()
+        && blockStack.size() == switchStack.back().blockDepthAtStart - 1) {
+        switchStack.pop_back();
+    }
+}
+
+bool VM::executeExceptionOpcode(const Instruction& instr) {
+    switch (instr.op) {
+        case OP_THU: {
+            TryFrame frame;
+            frame.catchAddr = instr.operand;
+            frame.stackDepth = static_cast<int>(stack.size());
+            frame.errVarId = instr.operandIndex;
+            tryStack.push_back(frame);
+            return false;
+        }
+        case OP_THU_KET_THUC:
+            if (!tryStack.empty()) tryStack.pop_back();
+            pc = instr.operand;
+            return true;
+        case OP_BAT_LOI: {
+            const int errVarId = instr.operandIndex;
+            if (errVarId >= 0 && !stack.empty()) {
+                StackValue errVal = stack.back(); stack.pop_back();
+                variables[errVarId] = errVal;
+            } else if (!stack.empty()) {
+                stack.pop_back();
+            }
+            return false;
+        }
+        case OP_NEM: {
+            if (stack.empty()) {
+                stack.push_back(make_string_value(
+                    vietvm::messages::formatMessage(vietvm::messages::kVmUnknownThrownValue)));
+            }
+            StackValue errVal = stack.back(); stack.pop_back();
+            if (tryStack.empty()) {
+                throw std::runtime_error(vietvm::messages::formatMessage(
+                    vietvm::messages::kVmUncaughtException, {sv_to_string(errVal)}));
+            }
+            TryFrame frame = tryStack.back(); tryStack.pop_back();
+            while (static_cast<int>(stack.size()) > frame.stackDepth) stack.pop_back();
+            stack.push_back(errVal);
+            pc = frame.catchAddr;
+            return true;
+        }
+        default:
+            throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmUnknownOpcode), instr.op, pc);
+    }
+}
+
+bool VM::executeBranchOpcode(const Instruction& instr) {
+    const int jumpAddress = instr.operand;
+    if (instr.op == OP_JUMP) {
+        if (jumpAddress < 0 || jumpAddress >= static_cast<int>(bytecode.size())) {
+            throw runtime_error_op(vietvm::messages::formatMessage(
+                vietvm::messages::kVmJumpAddressOutOfRange), instr.op, pc);
+        }
+        pc = jumpAddress;
+        return true;
+    }
+
+    if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
+        vietvm::messages::kVmJumpIfFalseEmptyStack), instr.op, pc);
+    StackValue condition = stack.back(); stack.pop_back();
+    if (!std::holds_alternative<int>(condition)) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmJumpConditionMustBeInt), instr.op, pc);
+    }
+    if (as_int(condition, instr.op, pc) != 0) {
+        return false;
+    }
+    if (jumpAddress < 0 || jumpAddress >= static_cast<int>(bytecode.size())) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmJumpAddressOutOfRange), instr.op, pc);
+    }
+    pc = jumpAddress;
+    return true;
+}
+
+void VM::executeOutputOpcode(const Instruction& instr) {
+    if (instr.op != OP_IN) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmUnknownOpcode), instr.op, pc);
+    }
+    if (stack.empty()) {
+        throw runtime_error_op(vietvm::messages::formatMessage(
+            vietvm::messages::kVmEmptyStackWhenPrint), instr.op, pc);
+    }
+
+    StackValue value = stack.back();
+    stack.pop_back();
+    if (switchStack.empty() || !switchStack.back().skippingCase) {
+        emitOutput(value);
+    }
+}
+
 void VM::run() {
+    VMRuntimeFixture runtime(*this);
     const bool gcEnabled = vietvm::helpers::hasEnvVar(vietvm::constants::kEnvVppEnableGc)
                         || vietvm::helpers::hasEnvVar(vietvm::constants::kEnvVietvmEnableGc);
     int gcInterval = vietvm::constants::kDefaultGcInterval;
@@ -709,102 +1459,13 @@ void VM::run() {
     }
 
     int executedSinceGc = 0;
-
-    // Build function name→id table if not already populated (inherited from parent in recursive calls)
     if (functionTableByNameIndex.empty()) {
-        for (size_t i = 0; i < bytecode.size(); ++i) {
-            const Instruction &ci = bytecode[i];
-            if (ci.op == OP_HAM && ci.operand >= 0) {
-                functionTableByNameIndex[ci.operand] = ci.operandIndex;
+        for (const Instruction &candidate : bytecode) {
+            if (candidate.op == OP_HAM && candidate.operand >= 0) {
+                functionTableByNameIndex[candidate.operand] = candidate.operandIndex;
             }
         }
     }
-
-    auto invokeFunction = [&](int argc, int hamIdOrName, Opcode op, int curPc) {
-        // 1. Thu thập Đối số (Args) từ stack của VM mẹ
-        std::vector<StackValue> args;
-        args.reserve(argc);
-        for (int i = 0; i < argc; ++i) {
-            if (stack.empty()) {
-                args.emplace_back(0);
-            } else {
-                args.push_back(stack.back());
-                stack.pop_back();
-            }
-        }
-        std::reverse(args.begin(), args.end());
-
-        // Native stdlib hooks (io/config/time/http)
-        StackValue nativeResult = make_int_value(0);
-        std::string nativeErr;
-        if (executeNativeStdlibFunction(hamIdOrName, args, stringPool,
-                                        functionTableByNameIndex, hamBytecodeMap,
-                                        nativeResult, nativeErr)) {
-            if (!nativeErr.empty()) {
-                throw runtime_error_op(nativeErr, op, curPc);
-            }
-            stack.push_back(nativeResult);
-            return;
-        }
-
-        // 2. Tạo Khung Gọi (Call Frame) cho VM con
-        CallFrame frame;
-        frame.args = args;
-        frame.localsIndexed = true;
-        frame.returnPc = static_cast<int>(curPc + 1);
-        callStack.push_back(frame);
-
-        // 3. Tra cứu Hàm
-        auto it = hamBytecodeMap.find(hamIdOrName);
-        if (it == hamBytecodeMap.end()) {
-            int nameIndex = (hamIdOrName < 0) ? -(hamIdOrName + 1) : hamIdOrName;
-            auto ftIt = functionTableByNameIndex.find(nameIndex);
-            if (ftIt != functionTableByNameIndex.end()) {
-                int foundHamId = ftIt->second;
-                it = hamBytecodeMap.find(foundHamId);
-            } else {
-                for (size_t i = 0; i < bytecode.size(); ++i) {
-                    const Instruction &hinst = bytecode[i];
-                    if (hinst.op == OP_HAM && hinst.operand == nameIndex) {
-                        int foundHamId = hinst.operandIndex;
-                        auto it2 = hamBytecodeMap.find(foundHamId);
-                        if (it2 != hamBytecodeMap.end()) { it = it2; break; }
-                    }
-                }
-            }
-        }
-
-        if (it == hamBytecodeMap.end()) {
-            if (!callStack.empty()) callStack.pop_back();
-            int nameIndex = (hamIdOrName < 0) ? -(hamIdOrName + 1) : hamIdOrName;
-            std::string fnName = "?";
-            if (nameIndex >= 0 && nameIndex < static_cast<int>(stringPool.size())) {
-                fnName = stringPool[nameIndex];
-            }
-            throw runtime_error_op(
-                vietvm::messages::formatMessage(vietvm::messages::kVmFunctionNotFound,
-                                                 {std::to_string(hamIdOrName), fnName}),
-                op,
-                curPc
-            );
-        }
-
-        // 4. Chạy VM con và Chia sẻ Trạng thái
-        VM funcVM(it->second, this->stringPool);
-        funcVM.variables = this->variables;
-        funcVM.callStack.clear();
-        funcVM.callStack.push_back(callStack.back());
-        funcVM.hamBytecodeMap = this->hamBytecodeMap;
-        funcVM.functionTableByNameIndex = this->functionTableByNameIndex;
-        funcVM.run();
-
-        // 5. Cập nhật Trạng thái về VM mẹ
-        this->variables = funcVM.variables;
-        if (!funcVM.stack.empty()) {
-            stack.push_back(funcVM.stack.back());
-        }
-        if (!callStack.empty()) callStack.pop_back();
-    };
 
     while (pc < bytecode.size()) {
         if (gcEnabled) {
@@ -817,768 +1478,103 @@ void VM::run() {
 
         const Instruction &instr = bytecode[pc];
         switch (instr.op) {
-            case OP_HAM: {
-                break;
-            }
-
-            case OP_GOI: {
-                int argc = instr.operand;
-                int hamIdOrName = instr.operandIndex;
-                invokeFunction(argc, hamIdOrName, instr.op, (int)pc);
-                break;
-            }
-
-            case OP_GOI_GIAN_TIEP: {
-                int argc = instr.operand;
-                if (stack.empty()) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmIndirectCallMissingReference), instr.op, pc);
-                }
-
-                StackValue calleeVal = stack.back();
-                stack.pop_back();
-
-                int hamIdOrName = -1;
-                if (std::holds_alternative<int>(calleeVal)) {
-                    hamIdOrName = std::get<int>(calleeVal);
-                } else if (std::holds_alternative<std::string>(calleeVal)) {
-                    const auto &s = std::get<std::string>(calleeVal);
-                    try {
-                        hamIdOrName = std::stoi(s);
-                    } catch (...) {
-                        auto it = std::find(stringPool.begin(), stringPool.end(), s);
-                        if (it != stringPool.end()) {
-                            hamIdOrName = -static_cast<int>(std::distance(stringPool.begin(), it)) - 1;
-                        } else {
-                            throw runtime_error_op(vietvm::messages::formatMessage(
-                                vietvm::messages::kVmIndirectCallInvalidReference), instr.op, pc);
-                        }
-                    }
-                } else {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmIndirectCallUnsupportedReferenceType), instr.op, pc);
-                }
-
-                invokeFunction(argc, hamIdOrName, instr.op, (int)pc);
-                break;
-            }
-
-            case OP_BIEN_SO: {
-                int val = instr.operand;
-                stack.emplace_back(val);
-                break;
-            }
-
-            case OP_TEN_BIEN_ID: {
-                int varId = instr.operandIndex;
-                stack.emplace_back(varId);
-                break;
-            }
-
-            case OP_NEU: {
-                // Marker opcode - no runtime action here.
-                break;
-            }
-
-            case OP_MODULO: {
-                if (stack.size() < 2) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmMissingModuloOperands), instr.op, pc);
-                StackValue b = stack.back(); stack.pop_back();
-                StackValue a = stack.back(); stack.pop_back();
-                stack.push_back(evaluateModuloOperator(
-                    a, b, instr.op, static_cast<int>(pc)));
-                break;
-            }
-
-            case OP_CONG: case OP_TRU: case OP_NHAN: case OP_CHIA:
-            case OP_Logic_VA: case OP_Logic_HOAC:
-            case OP_SO_SANH_BANG: case OP_KHAC_BANG:
-            case OP_LON_HON: case OP_NHO_HON:
-            case OP_LON_HON_HOAC_BANG: case OP_NHO_HON_HOAC_BANG: {
-                if (stack.size() < 2) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmNotEnoughOperands), instr.op, pc);
-
-                StackValue b = stack.back(); stack.pop_back();
-                StackValue a = stack.back(); stack.pop_back();
-                stack.push_back(evaluateBinaryOperator(
-                    instr.op, a, b, static_cast<int>(pc)));
-                break;
-            }
-
-            case OP_KHONG: {
-                if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmMissingNotOperands), instr.op, pc);
-                StackValue a = stack.back(); stack.pop_back();
-                stack.push_back((as_int(a, instr.op, pc) == 0) ? 1 : 0);
-                break;
-            }
-
-            case OP_KHOI_TAO: {
-                int varId = instr.operandIndex;
-                // If we are inside a call frame, initialize local storage there.
-                if (!callStack.empty()) {
-                    CallFrame &frame = callStack.back();
-                    if (frame.localsIndexed) {
-                        if (varId >= 0 && varId >= (int)frame.localsVec.size()) {
-                            frame.localsVec.resize(varId + 1, make_int_value(0));
-                        } else if (varId >= 0 && varId < (int)frame.localsVec.size()) {
-                            frame.localsVec[varId] = make_int_value(0);
-                        }
-                    } else {
-                        frame.localsMap[varId] = make_int_value(0);
-                    }
-                } else {
-                    if (variables.count(varId) == 0) {
-                        variables[varId] = make_int_value(0);
-                    }
-                }
-                break;
-            }
-
+            case OP_HAM:
+            case OP_NEU:
             case OP_DIEU_KIEN:
-                break;
-
             case OP_LAP:
-                break;
-
             case OP_CAP_NHAT:
-                // metadata label - no runtime action
+            case OP_DONG_LENH:
+            case OP_MO_NGOAC:
+            case OP_DONG_NGOAC:
                 break;
 
-            case OP_CHUOI: {
-                if (instr.operandIndex < 0 || instr.operandIndex >= (int)stringPool.size()) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmInvalidStringIndex), instr.op, pc);
-                }
-                stack.push_back(stringPool[instr.operandIndex]);
+            case OP_GOI:
+            case OP_GOI_GIAN_TIEP:
+                runtime.executeCall(instr);
                 break;
-            }
 
-            case OP_BIEN_SO_FLOAT: {
-                if (instr.operandIndex < 0 || instr.operandIndex >= (int)stringPool.size())
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmInvalidFloatIndex), instr.op, pc);
-                try {
-                    double d = std::stod(stringPool[instr.operandIndex]);
-                    stack.push_back(make_float_value(d));
-                } catch (...) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmCannotConvertToFloat,
-                        {stringPool[instr.operandIndex]}), instr.op, pc);
-                }
+            case OP_BIEN_SO:
+            case OP_TEN_BIEN_ID:
+            case OP_MODULO:
+            case OP_CONG:
+            case OP_TRU:
+            case OP_NHAN:
+            case OP_CHIA:
+            case OP_Logic_VA:
+            case OP_Logic_HOAC:
+            case OP_SO_SANH_BANG:
+            case OP_KHAC_BANG:
+            case OP_LON_HON:
+            case OP_NHO_HON:
+            case OP_LON_HON_HOAC_BANG:
+            case OP_NHO_HON_HOAC_BANG:
+            case OP_KHONG:
+            case OP_CHUOI:
+            case OP_BIEN_SO_FLOAT:
+            case OP_RONG_GIA_TRI:
+            case OP_DUNG_GIA_TRI:
+            case OP_SAI_GIA_TRI:
+            case OP_MAP_LITERAL:
+            case OP_LIST_LITERAL:
+            case OP_PHU_DINH:
+                runtime.executeValue(instr);
                 break;
-            }
 
-            case OP_RONG_GIA_TRI: {
-                stack.push_back(make_null_value());
+            case OP_KHOI_TAO:
+            case OP_TEN_BIEN_GIA_TRI:
+            case OP_GAN:
+            case OP_PARAM:
+            case OP_PARAM_MAC_DINH:
+            case OP_CONG_MOT:
+            case OP_TRU_MOT:
+                runtime.executeVariable(instr);
                 break;
-            }
 
-            case OP_DUNG_GIA_TRI: {
-                stack.push_back(make_int_value(1));
+            case OP_DOC_CHI_SO:
+            case OP_GAN_CHI_SO:
+                runtime.executeIndex(instr);
                 break;
-            }
 
-            case OP_SAI_GIA_TRI: {
-                stack.push_back(make_int_value(0));
+            case OP_IN:
+                runtime.executeOutput(instr);
                 break;
-            }
 
-            case OP_MAP_LITERAL: {
-                if (instr.operandIndex < 0 || instr.operandIndex >= (int)stringPool.size()) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmInvalidMapIndex), instr.op, pc);
-                }
-                try {
-                    MapValue parsed = decodeMapFromStringPool(stringPool[instr.operandIndex]);
-                    stack.push_back(make_map_value(parsed));
-                } catch (const std::exception &ex) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmParseMapLiteral, {ex.what()}), instr.op, pc);
-                }
-                break;
-            }
-
-            case OP_LIST_LITERAL: {
-                if (instr.operandIndex < 0 || instr.operandIndex >= (int)stringPool.size()) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmInvalidListIndex), instr.op, pc);
-                }
-                try {
-                    stack.push_back(make_list_value(
-                        decodeListFromStringPool(stringPool[instr.operandIndex])));
-                } catch (const std::exception &ex) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmParseMapLiteral, {ex.what()}), instr.op, pc);
-                }
-                break;
-            }
-
-            case OP_DOC_CHI_SO: {
-                if (stack.size() < 2) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmNotEnoughOperands), instr.op, pc);
-                }
-                StackValue indexValue = stack.back(); stack.pop_back();
-                StackValue container = stack.back(); stack.pop_back();
-                if (!std::holds_alternative<int>(indexValue)) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmIndexMustBeInteger), instr.op, pc);
-                }
-                const int index = std::get<int>(indexValue);
-                if (index < 0) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmIndexOutOfRange), instr.op, pc);
-                }
-                if (std::holds_alternative<ListHandle>(container)) {
-                    const ListHandle &list = std::get<ListHandle>(container);
-                    if (list == nullptr || static_cast<std::size_t>(index) >= list->elements.size()) {
-                        throw runtime_error_op(vietvm::messages::formatMessage(
-                            vietvm::messages::kVmIndexOutOfRange), instr.op, pc);
-                    }
-                    stack.push_back(list->elements[static_cast<std::size_t>(index)]);
-                    break;
-                }
-                if (std::holds_alternative<TupleHandle>(container)) {
-                    const TupleHandle &tuple = std::get<TupleHandle>(container);
-                    if (tuple == nullptr || static_cast<std::size_t>(index) >= tuple->elements.size()) {
-                        throw runtime_error_op(vietvm::messages::formatMessage(
-                            vietvm::messages::kVmIndexOutOfRange), instr.op, pc);
-                    }
-                    stack.push_back(tuple->elements[static_cast<std::size_t>(index)]);
-                    break;
-                }
-                if (std::holds_alternative<std::string>(container)) {
-                    const std::string &text = std::get<std::string>(container);
-                    if (static_cast<std::size_t>(index) >= text.size()) {
-                        throw runtime_error_op(vietvm::messages::formatMessage(
-                            vietvm::messages::kVmIndexOutOfRange), instr.op, pc);
-                    }
-                    stack.push_back(make_string_value(std::string(1, text[static_cast<std::size_t>(index)])));
-                    break;
-                }
-                throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmIndexNeedsListOrString), instr.op, pc);
-            }
-
-            case OP_GAN_CHI_SO: {
-                if (stack.size() < 3) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmAssignNotEnoughOperands), instr.op, pc);
-                }
-                StackValue value = stack.back(); stack.pop_back();
-                StackValue indexValue = stack.back(); stack.pop_back();
-                StackValue container = stack.back(); stack.pop_back();
-                if (!std::holds_alternative<int>(indexValue)) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmIndexMustBeInteger), instr.op, pc);
-                }
-                const int index = std::get<int>(indexValue);
-                if (index < 0 || !std::holds_alternative<ListHandle>(container)) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        index < 0 ? vietvm::messages::kVmIndexOutOfRange
-                                  : vietvm::messages::kVmIndexNeedsListOrString), instr.op, pc);
-                }
-                const ListHandle &list = std::get<ListHandle>(container);
-                if (list == nullptr || static_cast<std::size_t>(index) >= list->elements.size()) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmIndexOutOfRange), instr.op, pc);
-                }
-                list->elements[static_cast<std::size_t>(index)] = std::move(value);
-                break;
-            }
-
-            case OP_IN: {
-                if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmEmptyStackWhenPrint), instr.op, pc);
-                StackValue value = stack.back(); stack.pop_back();
-                if (!switchStack.empty() && switchStack.back().skippingCase) {
-                    break;
-                }
-
-                std::cout << vietvm::messages::messageText(vietvm::messages::kVmOutputPrefix)
-                          << sv_to_string(value) << std::endl;
-                break;
-            }
-
-            case OP_TRA_VE: {
-                if (stack.empty()) {
-                    stack.push_back(make_int_value(0));
-                }
+            case OP_TRA_VE:
+                if (stack.empty()) stack.push_back(make_int_value(0));
                 return;
-            }
 
-            case OP_BO_QUA: {
-                // Nhảy đến OP_CAP_NHAT gần nhất (bắt đầu phần update của vòng lặp)
-                size_t scanPc = pc + 1;
-                while (scanPc < bytecode.size()) {
-                    if (bytecode[scanPc].op == OP_CAP_NHAT) {
-                        pc = (int)scanPc;
-                        goto bo_qua_done;
-                    }
-                    ++scanPc;
-                }
-                throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmContinueMissingUpdate), instr.op, pc);
-                bo_qua_done:
+            case OP_BO_QUA:
+                runtime.executeLoopControl(instr);
                 break;
-            }
 
-            case OP_CHON: {
-                if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmSwitchEmptyStack), instr.op, pc);
-                SwitchFrame frame;
-                frame.switchValue = stack.back();
-                stack.pop_back();
-                frame.skippingCase = true;
-                frame.caseMatched = false;
-                frame.blockDepthAtStart = blockStack.size();
-                switchStack.push_back(frame);
+            case OP_CHON:
+            case OP_CA:
+            case OP_MAC_DINH:
+            case OP_THOAT:
+                if (runtime.executeSwitch(instr)) continue;
                 break;
-            }
 
-            case OP_CA: {
-                if (switchStack.empty() || !switchStack.back().switchValue.has_value()) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmCaseOutsideSwitch), instr.op, pc);
-                }
-                auto& ctx = switchStack.back();
-
-                bool match = false;
-                if (instr.operandIndex >= 0) {
-                    std::string caseStr = stringPool.at(instr.operandIndex);
-                    if (std::holds_alternative<std::string>(*ctx.switchValue)) {
-                        match = (std::get<std::string>(*ctx.switchValue) == caseStr);
-                    } else if (std::holds_alternative<int>(*ctx.switchValue)) {
-                        match = (std::to_string(std::get<int>(*ctx.switchValue)) == caseStr);
-                    }
-                } else if (instr.operandIndex == -1) {
-                    if (std::holds_alternative<int>(*ctx.switchValue)) {
-                        match = (std::get<int>(*ctx.switchValue) == instr.operand);
-                    } else if (std::holds_alternative<std::string>(*ctx.switchValue)) {
-                        try {
-                            int sv = std::stoi(std::get<std::string>(*ctx.switchValue));
-                            match = (sv == instr.operand);
-                        } catch (...) { match = false; }
-                    }
-                } else if (instr.operandIndex == -2) {
-                    int varId = instr.operand;
-                    int varValue = 0;
-                    if (variables.count(varId)) {
-                        varValue = as_int(variables[varId], instr.op, pc);
-                    }
-                    if (std::holds_alternative<int>(*ctx.switchValue)) {
-                        match = (std::get<int>(*ctx.switchValue) == varValue);
-                    } else if (std::holds_alternative<std::string>(*ctx.switchValue)) {
-                        try {
-                            int sv = std::stoi(std::get<std::string>(*ctx.switchValue));
-                            match = (sv == varValue);
-                        } catch (...) { match = false; }
-                    }
-                } else {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmCaseInvalidOperandFormat), instr.op, pc);
-                }
-
-                if (!ctx.caseMatched && match) {
-                    ctx.skippingCase = false;
-                    ctx.caseMatched = true;
-                } else {
-                    ctx.skippingCase = true;
-                }
+            case OP_JUMP:
+            case OP_JUMP_IF_FALSE:
+                if (runtime.executeBranch(instr)) continue;
                 break;
-            }
-
-            case OP_MAC_DINH: {
-                if (switchStack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmDefaultOutsideSwitch), instr.op, pc);
-                auto& ctx = switchStack.back();
-                if (!ctx.caseMatched) {
-                    ctx.skippingCase = false;
-                    ctx.caseMatched = true;
-                } else {
-                    ctx.skippingCase = true;
-                }
-                break;
-            }
-
-            case OP_THOAT: {
-                if (switchStack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmBreakOutsideSwitch), instr.op, pc);
-                auto& ctx = switchStack.back();
-                ctx.skippingCase = true;
-
-                while (pc < bytecode.size()) {
-                    if (bytecode[pc].op == OP_DONG_KHOI) {
-                        ++pc;
-                        break;
-                    }
-                    ++pc;
-                }
-                continue;
-            }
-
-            case OP_TEN_BIEN_GIA_TRI: {
-                int varId = instr.operandIndex;
-
-                // Prefer locals if inside a call frame AND local has been initialized
-                if (!callStack.empty()) {
-                    CallFrame &frame = callStack.back();
-                    if (frame.localsIndexed) {
-                        // Only use local if it exists (was set by OP_PARAM/OP_KHOI_TAO)
-                        if (varId >= 0 && varId < (int)frame.localsVec.size()) {
-                            stack.push_back(frame.localsVec[varId]);
-                            break;
-                        }
-                        // Otherwise fall through to global variables
-                    } else {
-                        auto itloc = frame.localsMap.find(varId);
-                        if (itloc != frame.localsMap.end()) {
-                            // Local exists, use it
-                            stack.push_back(itloc->second);
-                            break;
-                        }
-                        // Otherwise fall through to global variables
-                    }
-                }
-
-                // Fallback to global variables
-                if (variables.count(varId) == 0) {
-                    // Silently initialize to 0 - this can happen for:
-                    // 1. Variables that are implicitly declared
-                    // 2. First access before explicit assignment
-                    variables[varId] = make_int_value(0);
-                }
-                stack.push_back(variables[varId]);
-                break;
-            }
-
-            case OP_GAN: {
-                if (stack.size() < 2) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmAssignNotEnoughOperands), instr.op, pc);
-
-                StackValue top = stack.back();
-                StackValue second = stack[stack.size() - 2];
-
-                StackValue varIdVal;
-                StackValue valueVal;
-
-                if (std::holds_alternative<int>(top) && std::holds_alternative<std::string>(second)) {
-                    // compiler convention might differ; detect common patterns
-                    varIdVal = top;
-                    valueVal = second;
-                } else if (std::holds_alternative<std::string>(top) && std::holds_alternative<int>(second)) {
-                    varIdVal = second;
-                    valueVal = top;
-                } else {
-                    // fallback based on convention: top = varId, second = value
-                    varIdVal = top;
-                    valueVal = second;
-                }
-
-                // pop both
-                stack.pop_back();
-                stack.pop_back();
-
-                if (!std::holds_alternative<int>(varIdVal))
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmVariableIdMustBeInt), instr.op, pc);
-
-                int varId = std::get<int>(varIdVal);
-
-                // Prefer writing to locals if inside a call frame
-                // This ensures consistency with OP_TEN_BIEN_GIA_TRI which reads from locals first
-                if (!callStack.empty()) {
-                    CallFrame &frame = callStack.back();
-                    if (frame.localsIndexed) {
-                        // Existing local slot -> write local
-                        if (varId >= 0 && varId < (int)frame.localsVec.size()) {
-                            frame.localsVec[varId] = valueVal;
-                            break;
-                        }
-
-                        // Existing global variable -> keep writing global for shared-global semantics
-                        if (variables.count(varId) != 0) {
-                            variables[varId] = valueVal;
-                            break;
-                        }
-
-                        // Implicit local assignment inside function: create local slot on demand.
-                        if (varId >= 0) {
-                            frame.localsVec.resize(varId + 1, make_int_value(0));
-                            frame.localsVec[varId] = valueVal;
-                            break;
-                        }
-                    } else {
-                        auto itloc = frame.localsMap.find(varId);
-                        if (itloc != frame.localsMap.end()) {
-                            frame.localsMap[varId] = valueVal;
-                            break;
-                        }
-
-                        if (variables.count(varId) != 0) {
-                            variables[varId] = valueVal;
-                            break;
-                        }
-
-                        // Implicit local assignment inside function.
-                        frame.localsMap[varId] = valueVal;
-                        break;
-                    }
-                }
-
-                // Fallback: store in global variables map
-                variables[varId] = valueVal;
-                break;
-            }
-
-            case OP_JUMP: {
-                int jump_address = instr.operand;
-                if (jump_address < 0 || jump_address >= (int)bytecode.size()) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmJumpAddressOutOfRange), instr.op, pc);
-                }
-                pc = jump_address;
-                continue;
-            }
-
-            case OP_JUMP_IF_FALSE: {
-                int jump_address = instr.operand;
-                if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmJumpIfFalseEmptyStack), instr.op, pc);
-                StackValue condition = stack.back(); stack.pop_back();
-
-                if (!std::holds_alternative<int>(condition))
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmJumpConditionMustBeInt), instr.op, pc);
-
-                int condition_value = as_int(condition, instr.op, pc);
-                if (condition_value == 0) {
-                    if (jump_address < 0 || jump_address >= (int)bytecode.size())
-                        throw runtime_error_op(vietvm::messages::formatMessage(
-                            vietvm::messages::kVmJumpAddressOutOfRange), instr.op, pc);
-                    pc = jump_address;
-                    continue;
-                }
-                break;
-            }
 
             case OP_DUNG_CHUONG_TRINH:
                 return;
 
-            case OP_MO_KHOI: {
-                blockStack.push_back(pc);
-                ++blockDepth;
-                break;
-            }
-
-            case OP_DONG_KHOI: {
-                if (blockStack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmNoOpenBlock), instr.op, pc);
-                blockStack.pop_back();
-
-                if (blockDepth > 0) --blockDepth;
-
-                if (!switchStack.empty()) {
-                    if (blockStack.size() == switchStack.back().blockDepthAtStart - 1) {
-                        switchStack.pop_back();
-                    }
-                }
-                break;
-            }
-
-            case OP_DONG_LENH: case OP_MO_NGOAC: case OP_DONG_NGOAC:
+            case OP_MO_KHOI:
+            case OP_DONG_KHOI:
+                runtime.executeBlock(instr);
                 break;
 
-            case OP_PHU_DINH: {
-                if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmMissingNegationOperand), instr.op, pc);
-                StackValue operand = stack.back(); stack.pop_back();
-                bool b = toBool(operand);
-                int result = b ? 0 : 1;
-                stack.push_back(result);
+            case OP_THU:
+            case OP_THU_KET_THUC:
+            case OP_BAT_LOI:
+            case OP_NEM:
+                if (runtime.executeException(instr)) continue;
                 break;
-            }
-            case OP_PARAM: {
-                int localId = instr.operandIndex;
-                int argIndex = instr.operandValue;
 
-                if (callStack.empty()) {
-                    variables[localId] = make_int_value(0);
-                    break;
-                }
-                CallFrame &frame = callStack.back();
-                StackValue v;
-                if (argIndex >= 0 && argIndex < (int)frame.args.size()) {
-                    v = frame.args[argIndex];
-                } else {
-                    v = make_int_value(0);
-                    vmLog(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmParamArgIndexOutOfRange));
-                }
-                if (frame.localsIndexed) {
-                    if (localId >= (int)frame.localsVec.size()) frame.localsVec.resize(localId + 1, make_int_value(0));
-                    frame.localsVec[localId] = v;
-                } else {
-                    frame.localsMap[localId] = v;
-                }
-                break;
-            }
-            case OP_PARAM_MAC_DINH: {
-                int defaultIndex = instr.operand;
-                int localId = instr.operandIndex;
-                int argIndex = instr.operandValue;
-
-                if (defaultIndex < 0 || defaultIndex >= (int)stringPool.size()) {
-                    throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmDefaultParamIndexInvalid), instr.op, pc);
-                }
-
-                StackValue v;
-                if (!callStack.empty() && argIndex >= 0 && argIndex < (int)callStack.back().args.size()) {
-                    v = callStack.back().args[argIndex];
-                } else {
-                    v = decodeDefaultParamValue(stringPool[defaultIndex]);
-                }
-
-                if (callStack.empty()) {
-                    variables[localId] = v;
-                    break;
-                }
-
-                CallFrame &frame = callStack.back();
-                if (frame.localsIndexed) {
-                    if (localId >= (int)frame.localsVec.size()) frame.localsVec.resize(localId + 1, make_int_value(0));
-                    frame.localsVec[localId] = v;
-                } else {
-                    frame.localsMap[localId] = v;
-                }
-                break;
-            }
-            case OP_CONG_MOT: {
-                if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmIncrementEmptyStack), instr.op, pc);
-                StackValue top = stack.back(); stack.pop_back();
-                auto push_int = [&](int v) { stack.push_back(make_int_value(v)); };
-                if (std::holds_alternative<int>(top)) {
-                    int idOrVal = std::get<int>(top);
-                    bool updated = false;
-                    if (!callStack.empty()) {
-                        CallFrame &frame = callStack.back();
-                        if (frame.localsIndexed) {
-                            // Only use localsVec if slot already exists (do NOT resize)
-                            if (idOrVal >= 0 && idOrVal < (int)frame.localsVec.size()) {
-                                int cur = as_int(frame.localsVec[idOrVal], instr.op, pc);
-                                frame.localsVec[idOrVal] = make_int_value(cur + 1);
-                                push_int(cur + 1); updated = true;
-                            }
-                        } else {
-                            auto itLoc = frame.localsMap.find(idOrVal);
-                            if (itLoc != frame.localsMap.end()) {
-                                int cur = as_int(itLoc->second, instr.op, pc);
-                                itLoc->second = make_int_value(cur + 1);
-                                push_int(cur + 1); updated = true;
-                            }
-                        }
-                    }
-                    if (!updated) {
-                        int cur = variables.count(idOrVal) ? as_int(variables[idOrVal], instr.op, pc) : 0;
-                        variables[idOrVal] = make_int_value(cur + 1);
-                        push_int(cur + 1);
-                    }
-                } else if (std::holds_alternative<std::string>(top)) {
-                    try { push_int(std::stoi(std::get<std::string>(top)) + 1); }
-                    catch (...) { throw runtime_error_op(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmIncrementCannotIncreaseString), instr.op, pc); }
-                } else { throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmIncrementUnsupportedType), instr.op, pc); }
-                break;
-            }
-            case OP_THU: {
-                // operand = address of OP_BAT_LOI handler, operandIndex = errVarId (-1 = none)
-                TryFrame tf;
-                tf.catchAddr = instr.operand;
-                tf.stackDepth = (int)stack.size();
-                tf.errVarId = instr.operandIndex;
-                tryStack.push_back(tf);
-                break;
-            }
-
-            case OP_THU_KET_THUC: {
-                // Normal exit from try block: pop tryStack, jump past catch handler
-                if (!tryStack.empty()) tryStack.pop_back();
-                pc = instr.operand;  // jump past catch
-                continue;
-            }
-
-            case OP_BAT_LOI: {
-                // Catch handler entry: pop tryStack (already popped by OP_NEM)
-                // operandIndex = errVarId (-1 if no variable binding)
-                // The error value is on top of stack (pushed by OP_NEM)
-                int errVarId = instr.operandIndex;
-                if (errVarId >= 0 && !stack.empty()) {
-                    StackValue errVal = stack.back(); stack.pop_back();
-                    variables[errVarId] = errVal;
-                } else if (!stack.empty()) {
-                    stack.pop_back();  // discard error value
-                }
-                break;
-            }
-
-            case OP_NEM: {
-                if (stack.empty()) stack.push_back(make_string_value(
-                    vietvm::messages::formatMessage(vietvm::messages::kVmUnknownThrownValue)));
-                StackValue errVal = stack.back(); stack.pop_back();
-                if (tryStack.empty()) {
-                    // No catch handler: propagate as C++ exception
-                    throw std::runtime_error(vietvm::messages::formatMessage(
-                        vietvm::messages::kVmUncaughtException, {sv_to_string(errVal)}));
-                }
-                TryFrame tf = tryStack.back(); tryStack.pop_back();
-                // Unwind stack to try entry depth
-                while ((int)stack.size() > tf.stackDepth) stack.pop_back();
-                // Push error value for OP_BAT_LOI to consume
-                stack.push_back(errVal);
-                pc = tf.catchAddr;  // jump to catch handler
-                continue;
-            }
-
-            case OP_TRU_MOT: {
-                if (stack.empty()) throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmDecrementEmptyStack), instr.op, pc);
-                StackValue top = stack.back(); stack.pop_back();
-                auto push_int2 = [&](int v) { stack.push_back(make_int_value(v)); };
-                if (std::holds_alternative<int>(top)) {
-                    int idOrVal = std::get<int>(top);
-                    bool updated = false;
-                    if (!callStack.empty()) {
-                        CallFrame &frame = callStack.back();
-                        if (frame.localsIndexed) {
-                            if (idOrVal >= 0 && idOrVal < (int)frame.localsVec.size()) {
-                                int cur = as_int(frame.localsVec[idOrVal], instr.op, pc);
-                                frame.localsVec[idOrVal] = make_int_value(cur - 1);
-                                push_int2(cur - 1); updated = true;
-                            }
-                        } else {
-                            auto itLoc = frame.localsMap.find(idOrVal);
-                            if (itLoc != frame.localsMap.end()) {
-                                int cur = as_int(itLoc->second, instr.op, pc);
-                                itLoc->second = make_int_value(cur - 1);
-                                push_int2(cur - 1); updated = true;
-                            }
-                        }
-                    }
-                    if (!updated) {
-                        int cur = variables.count(idOrVal) ? as_int(variables[idOrVal], instr.op, pc) : 0;
-                        variables[idOrVal] = make_int_value(cur - 1);
-                        push_int2(cur - 1);
-                    }
-                } else { throw runtime_error_op(vietvm::messages::formatMessage(
-                    vietvm::messages::kVmDecrementUnsupportedType), instr.op, pc); }
-                break;
-            }
             default:
-                // If in a skipping switch block, ignore instructions
                 if (!switchStack.empty() && switchStack.back().skippingCase) {
                     break;
                 }

@@ -1,6 +1,6 @@
 # Tiến độ phát triển V++
 
-> Cập nhật: 12/09/2026
+> Cập nhật: 13/09/2026
 >
 > Tỷ lệ dưới đây được tính theo số checkbox trong roadmap, chỉ dùng để theo dõi
 > tiến độ đầu việc; không đại diện cho phần trăm khối lượng kỹ thuật thực tế.
@@ -10,9 +10,9 @@
 | Giai đoạn | Hoàn tất | Còn lại | Tỷ lệ |
 | --- | ---: | ---: | ---: |
 | Ngắn hạn | 14/15 | 1 | 93% |
-| Trung hạn | 10/18 | 8 | 56% |
+| Trung hạn | 14/18 | 4 | 78% |
 | Dài hạn | 10/23 | 13 | 43% |
-| **Tổng** | **34/56** | **22** | **61%** |
+| **Tổng** | **38/56** | **18** | **68%** |
 
 ## Đã xác nhận hoàn thành
 
@@ -35,13 +35,20 @@
 - [x] VM opcode smoke đã khóa native collection/text adapter qua direct/indirect call,
   boolean/null + unary stack và assignment/increment/decrement; runtime đã có handler
   trực tiếp cho `OP_DUNG_GIA_TRI` và `OP_SAI_GIA_TRI`.
+- [x] `VM::run()` đã được thu gọn thành lifecycle/GC + opcode routing; call, value,
+  index, variable/call-frame, switch/block, loop-control, exception và branch có
+  handler riêng. Regression trước/sau refactor đều giữ 54/54.
+- [x] VM opcode matrix hiện khóa arithmetic, logic/comparison boundary, stack,
+  branch, call/return, native call, default parameter, switch/default, throw/catch,
+  uncaught error và các lỗi boundary chính.
 - [x] Quality baseline đã có coverage gate 45%, `.clang-tidy` versioned và benchmark
   lặp lại được cho VM dispatch, lexer/compiler và native HTTP helpers.
 
 ## Đang thực hiện
 
-- [ ] **Tách `VM::run()`:** dispatch chính vẫn là switch lớn trong `src/runtime/vm.cpp`;
-  chưa có handler API độc lập để unit test theo opcode.
+- [ ] **VM handler test API:** `VM::run()` đã tách xong theo nhóm handler, nhưng state
+  nội bộ vẫn chưa có test fixture/API nhỏ để dựng và kiểm tra handler trực tiếp mà
+  không đi qua toàn bộ dispatch/stdout.
 - [ ] **Compiler state:** đã có `CompilationContext` cho top-level compile theo cơ chế
   reset + snapshot + cleanup, và CLI `runSnippet()` đã dùng context này. Nội bộ
   `StringPool`/`hamMap` vẫn là mutable global state nên compiler chưa re-entrant.
@@ -50,28 +57,30 @@
   compiler và các `compile*.cpp` cũ đã bị xóa khỏi source/CMake. Region chưa được direct
   emitter hỗ trợ giờ làm compile thất bại với diagnostic tường minh. `materializeIrTokens()`
   chỉ còn phục vụ lossless IR test/debug, không nằm trên production compile path.
-- [ ] **CI quality:** coverage threshold và clang-tidy đã có trong job Ubuntu; macOS
-  regression CI thường trực vẫn chưa có.
+- [x] **CI quality:** coverage threshold và clang-tidy chạy trên Ubuntu; macOS đã có
+  job build + full CTest thường trực bên cạnh Ubuntu và Windows.
 
 ## Rủi ro cần xử lý sớm
 
 - [x] Xác nhận tính độc lập của `vpp-pipeline-legacy-parity`: corpus 61 chương trình
   chạy thuận và đảo thứ tự trong cùng process đều khớp snapshot; chạy riêng parity
   và bộ CTest không gồm integration đều qua.
-- [ ] `VM::run()` còn tập trung nhiều side effect/call-frame logic trong một dispatch;
-  cần khóa hành vi bằng test trước khi tách handler.
+- [ ] Handler VM vẫn thao tác trực tiếp vào `stack`, `variables`, `callStack` và
+  control stacks của instance; bước tiếp theo là tạo internal state fixture/API để
+  unit test handler độc lập trước khi tối ưu dispatch sâu hơn.
 - [ ] Global compiler registries vẫn chặn mục tiêu re-entrant/concurrent compilation.
 
 ## Kiểm tra tại thời điểm cập nhật
 
 ```text
-CTest: 14/14 passed
+VM opcode smoke (build trực tiếp bằng C++17): passed
 Integration regression: 54/54 passed
-Pipeline parity: 61 chương trình, direct IR 61 chương trình
+CTest baseline gần nhất: 14/14 passed
+Pipeline parity baseline gần nhất: 61 chương trình, direct IR 61 chương trình
 Coverage cross-check: 75.77% line coverage (8,884/11,725), gate 45%
 Benchmark baseline: VM dispatch + lexer + compiler pipeline + native HTTP helpers
 Short-term: 14/15
-Medium-term: 10/18
+Medium-term: 14/18
 Long-term: 10/23
 ```
 
@@ -84,3 +93,8 @@ Long-term: 10/23
 4. [x] Đưa toàn bộ regression corpus 61/61 sang direct IR, khóa bằng parity gate và
    xóa token bridge khỏi production compiler/source set.
 5. [x] Sau khi test architecture ổn định, thêm coverage + clang-tidy + benchmark baseline.
+6. [x] Tách nốt variable/index/switch/block/exception khỏi `VM::run()` và mở rộng
+   opcode matrix; full regression sau refactor vẫn 54/54.
+7. [ ] Tạo internal VM state fixture/API để test handler trực tiếp mà không phụ thuộc stdout.
+8. [ ] Tiếp tục dời `StringPool`/function registry khỏi global compiler state và thêm
+   concurrent-compilation regression trước khi tuyên bố compiler re-entrant.

@@ -1,4 +1,4 @@
 // Đường dẫn tương thích cũ; giữ bề mặt full-stack của starter ứng dụng trước đây.
 nhập "gói/thư viện/khởi động/ứng dụng.vi";
-nhập "gói/thư viện/mạng web/kiểm thử/api.vi";
+nhập "gói/thư viện/mạng/kiểm thử/api.vi";
 nhập "gói/thư viện/ứng dụng/tương thích/api project.vi";

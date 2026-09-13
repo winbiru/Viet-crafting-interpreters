@@ -1,4 +1,4 @@
-// Module: thư viện.mạng web.kiểm thử.api
+// Module: thư viện.mạng.kiểm thử.api
 // Mục đích: helper tạo request theo HTTP verb để test/mô phỏng controller.
 // Nhóm hàm: api get, api post, api put, api delete và biến thể json/query.
 

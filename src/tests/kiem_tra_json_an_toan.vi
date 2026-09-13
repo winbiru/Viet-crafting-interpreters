@@ -1,5 +1,5 @@
-nhập "gói/thư viện/mạng web/json.vi";
-nhập "gói/thư viện/mạng web/rest.vi";
+nhập "gói/thư viện/mạng/json.vi";
+nhập "gói/thư viện/mạng/rest.vi";
 nhập "gói/thư viện/vào ra/tệp.vi";
 
 hàm main() {
